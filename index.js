@@ -33,17 +33,39 @@ app.use(express.static(path.join(__dirname, "public")));
 });
 */
 
+app.get("/api/accounts", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT DISTINCT ccusto
+      FROM transacoes
+      WHERE ccusto IS NOT NULL
+      ORDER BY ccusto;
+    `);
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error fetching accounts");
+  }
+});
+
 
 app.get("/api/categories-profit", async (req, res) => {
   try {
+
+    //query string
+    const account = req.query.account;
+    const params = [account || null];
+
     const query = `
 
     WITH tx_by_code AS (
       SELECT
         codigo,
+        ccusto,
         SUM(debito + credito) AS total_per_code
       FROM transacoes
-      GROUP BY codigo
+      GROUP BY codigo, ccusto
     )
     SELECT
       c.id AS id_da_categoria,
@@ -52,16 +74,23 @@ app.get("/api/categories-profit", async (req, res) => {
     FROM categorias c
     LEFT JOIN codigos co        ON co.id_da_categoria = c.id
     LEFT JOIN tx_by_code tx   ON tx.codigo = co.codigo
+    WHERE ($1::text IS NULL OR tx.ccusto = $1::text)
     GROUP BY c.id, c.nome_da_categoria
     ORDER BY c.id;
     `;
 
-    const result = await pool.query(query);
+    const result = await pool.query(query, params);
+
     res.json(result.rows);
   } catch (err) {
     console.error(err);
     res.status(500).send("Error fetching products");
   }
+});
+
+//serve regardless of index.html
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
 // Start server and listen for requests
