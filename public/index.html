@@ -2,12 +2,12 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Products List</title>
+  <title>001</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="Container">
-  <h1>Products</h1>
+  <h1>001</h1>
 
   <label for="accountSelect">Escolha a conta:</label>
 <select id="accountSelect">
@@ -18,16 +18,16 @@
 
   <ul id="productList"></ul>
 
-  <h1>Category Profits</h1>
-<table border="1" cellpadding="5">
+  <h1>2025</h1>
+<table border="1" id="profitTable">
   <thead>
     <tr>
-      <th>ID</th>
       <th>Categoria</th>
-      <th>Lucro</th>
+      <th>Jan</th><th>Fev</th><th>Mar</th><th>Abr</th><th>Mai</th><th>Jun</th>
+      <th>Jul</th><th>Ago</th><th>Set</th><th>Out</th><th>Nov</th><th>Dez</th>
     </tr>
   </thead>
-  <tbody id="profitTable"></tbody>
+  <tbody></tbody>
 </table>
 
   <script>
@@ -64,36 +64,37 @@
 
 
 
-    async function loadCategoryProfits(account = "") {
-
-      let url = "/api/categories-profit";
+    async function loadMonthlyProfit(account = "") {
+      let url = "/api/monthly-profit";
       if (account) url += `?account=${account}`;
 
       const res = await fetch(url);
-      const data = await res.json();
+      const rows = await res.json();
 
-      const tbody = document.getElementById("profitTable");
-      tbody.innerHTML = ""; // Clear table to refresh
+      const tbody = document.querySelector("#profitTable tbody");
+      tbody.innerHTML = "";
 
-      data.forEach(row => {
+      rows.forEach(row => {
         const tr = document.createElement("tr");
 
         tr.innerHTML = `
-          <td>${row.id_da_categoria}</td>
-          <td>${row.categoria}</td>
-          <td>${row.profit}</td>
+          <td>${row.category_name}</td>
+          <td>${row.jan}</td><td>${row.fev}</td><td>${row.mar}</td><td>${row.abr}</td>
+          <td>${row.mai}</td><td>${row.jun}</td>
+          <td>${row.jul}</td><td>${row.ago}</td><td>${row.set}</td>
+          <td>${row.out}</td><td>${row.nov}</td><td>${row.dez}</td>
         `;
 
         tbody.appendChild(tr);
       });
     }
 
-    document.getElementById("accountSelect").addEventListener("change", (e) => {
-      loadCategoryProfits(e.target.value);
+    document.getElementById("accountSelect").addEventListener("change", e => {
+      loadMonthlyProfit(e.target.value);
     });
 
     loadAccounts();
-    loadCategoryProfits();
+    loadMonthlyProfit();  
 
   </script>
   </div>

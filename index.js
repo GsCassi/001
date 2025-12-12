@@ -49,6 +49,57 @@ app.get("/api/accounts", async (req, res) => {
   }
 });
 
+app.get("/api/monthly-profit", async (req, res) => {
+  try {
+    const account = req.query.account || null;
+
+    const query = `
+      WITH tx AS (
+          SELECT 
+              codigo,
+              ccusto,
+              EXTRACT(MONTH FROM mes) AS mes,
+              SUM(debito + credito) AS total
+          FROM transacoes
+          GROUP BY codigo, ccusto, mes
+      )
+
+      SELECT 
+          c.id AS category_id,
+          c.nome_da_categoria AS category_name,
+
+          SUM(CASE WHEN tx.mes = 1 THEN tx.total ELSE 0 END) AS jan,
+          SUM(CASE WHEN tx.mes = 2 THEN tx.total ELSE 0 END) AS fev,
+          SUM(CASE WHEN tx.mes = 3 THEN tx.total ELSE 0 END) AS mar,
+          SUM(CASE WHEN tx.mes = 4 THEN tx.total ELSE 0 END) AS abr,
+          SUM(CASE WHEN tx.mes = 5 THEN tx.total ELSE 0 END) AS mai,
+          SUM(CASE WHEN tx.mes = 6 THEN tx.total ELSE 0 END) AS jun,
+          SUM(CASE WHEN tx.mes = 7 THEN tx.total ELSE 0 END) AS jul,
+          SUM(CASE WHEN tx.mes = 8 THEN tx.total ELSE 0 END) AS ago,
+          SUM(CASE WHEN tx.mes = 9 THEN tx.total ELSE 0 END) AS set,
+          SUM(CASE WHEN tx.mes = 10 THEN tx.total ELSE 0 END) AS out,
+          SUM(CASE WHEN tx.mes = 11 THEN tx.total ELSE 0 END) AS nov,
+          SUM(CASE WHEN tx.mes = 12 THEN tx.total ELSE 0 END) AS dez
+
+      FROM categorias c
+      LEFT JOIN codigos co ON co.id_da_categoria = c.id
+      LEFT JOIN tx ON tx.codigo = co.codigo
+          AND ($1::text IS NULL OR tx.ccusto = $1::text)
+
+      GROUP BY c.id, c.nome_da_categoria
+      ORDER BY c.id;
+    `;
+
+    const params = [account];
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Server error fetching data");
+  }
+});
+
 
 app.get("/api/categories-profit", async (req, res) => {
   try {

@@ -31,7 +31,7 @@
 
         /* Table header styling */
         thead {
-            background-color: #4CAF50;
+            background-color: #be192f;
             color: white;
         }
 
@@ -54,7 +54,7 @@
 
         /* Hover effect on rows */
         tbody tr:hover {
-            background-color: #e8f5e9;
+            background-color: #f1c0c0;
             cursor: pointer;
         }
 
