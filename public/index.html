@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Products List</title>
+</head>
+<body>
+  <h1>Products</h1>
+  <ul id="productList"></ul>
+
+  <h1>Category Profits</h1>
+<table border="1" cellpadding="5">
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Categoria</th>
+      <th>Lucro</th>
+    </tr>
+  </thead>
+  <tbody id="profitTable"></tbody>
+</table>
+
+  <script>
+
+    /*
+    async function loadProducts() {
+      const res = await fetch("/api/products");
+      const products = await res.json();
+
+      const ul = document.getElementById("productList");
+      products.forEach(p => {
+        const li = document.createElement("li");
+        li.textContent = `${p.product_id} - ${p.product_name}`;
+        ul.appendChild(li);
+      });
+    }
+
+    loadProducts();
+    */
+
+    async function loadCategoryProfits() {
+      const res = await fetch("/api/categories-profit");
+      const data = await res.json();
+
+      const tbody = document.getElementById("profitTable");
+
+      data.forEach(row => {
+        const tr = document.createElement("tr");
+
+        tr.innerHTML = `
+          <td>${row.id_da_categoria}</td>
+          <td>${row.categoria}</td>
+          <td>${row.profit}</td>
+        `;
+
+        tbody.appendChild(tr);
+      });
+    }
+
+    loadCategoryProfits();
+
+  </script>
+</body>
+</html>
