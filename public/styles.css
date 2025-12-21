@@ -5,6 +5,16 @@
             padding: 20px;
         }
 
+        .topic-row {
+            font-weight: bold;
+            color: #be192f;
+            background-color: #a31a1a7e;
+        }
+
+        .category-row td:first-child {
+            padding-left: 30px;
+        }
+
         /* Center the table container */
         .container {
             max-width: 800px;
@@ -63,3 +73,4 @@
             font-weight: bold;
             color: #555;
         }
+

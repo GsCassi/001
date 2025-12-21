@@ -65,7 +65,7 @@ app.get("/api/monthly-profit", async (req, res) => {
       )
 
       SELECT 
-          c.id AS category_id,
+          c.topico,
           c.nome_da_categoria AS category_name,
 
           SUM(CASE WHEN tx.mes = 1 THEN tx.total ELSE 0 END) AS jan,
@@ -86,21 +86,52 @@ app.get("/api/monthly-profit", async (req, res) => {
       LEFT JOIN tx ON tx.codigo = co.codigo
           AND ($1::text IS NULL OR tx.ccusto = $1::text)
 
-      GROUP BY c.id, c.nome_da_categoria
-      ORDER BY c.id;
+      GROUP BY c.topico, c.nome_da_categoria
+      ORDER BY c.topico, c.nome_da_categoria;
     `;
 
+    /*
     const params = [account];
     const result = await pool.query(query, params);
     res.json(result.rows);
+    */
 
+     const { rows } = await pool.query(query, [account]);
+
+    /* =========================
+       GROUPING + TOTALS
+       ========================= */
+
+    const topics = {};
+
+    for (const row of rows) {
+      if (!topics[row.topico]) {
+        topics[row.topico] = {
+          totals: {
+            jan: 0, fev: 0, mar: 0, abr: 0, mai: 0, jun: 0,
+            jul: 0, ago: 0, set: 0, out: 0, nov: 0, dez: 0
+          },
+          categories: []
+        };
+      }
+
+      // accumulate totals
+      for (const m of Object.keys(topics[row.topico].totals)) {
+        topics[row.topico].totals[m] += Number(row[m]);
+      }
+
+      // store full category row
+      topics[row.topico].categories.push(row);
+    }
+
+    res.json(topics);
   } catch (err) {
     console.error(err);
     res.status(500).send("Server error fetching data");
   }
 });
 
-
+/*
 app.get("/api/categories-profit", async (req, res) => {
   try {
 
@@ -121,13 +152,14 @@ app.get("/api/categories-profit", async (req, res) => {
     SELECT
       c.id AS id_da_categoria,
       c.nome_da_categoria AS categoria,
+      c.topico,
       COALESCE(SUM(tx.total_per_code), 0) AS profit
     FROM categorias c
     LEFT JOIN codigos co        ON co.id_da_categoria = c.id
     LEFT JOIN tx_by_code tx   ON tx.codigo = co.codigo
     WHERE ($1::text IS NULL OR tx.ccusto = $1::text)
-    GROUP BY c.id, c.nome_da_categoria
-    ORDER BY c.id;
+    GROUP BY c.id, c.nome_da_categoria, c.topico
+    ORDER BY c.topico, c.id;
     `;
 
     const result = await pool.query(query, params);
@@ -138,7 +170,7 @@ app.get("/api/categories-profit", async (req, res) => {
     res.status(500).send("Error fetching products");
   }
 });
-
+*/
 //serve regardless of index.html
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));

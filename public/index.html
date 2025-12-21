@@ -7,7 +7,7 @@
 </head>
 <body>
   <div class="Container">
-  <h1>001</h1>
+  <h1>Relatório Financeiro</h1>
 
   <label for="accountSelect">Escolha a conta:</label>
 <select id="accountSelect">
@@ -29,6 +29,7 @@
   </thead>
   <tbody></tbody>
 </table>
+
 
   <script>
 
@@ -62,32 +63,57 @@
       });
     }
 
+    //let currentTopic = null
 
+   async function loadMonthlyProfit(account = "") {
+    let url = "/api/monthly-profit";
+    if (account) url += `?account=${account}`;
 
-    async function loadMonthlyProfit(account = "") {
-      let url = "/api/monthly-profit";
-      if (account) url += `?account=${account}`;
+    const res = await fetch(url);
+    const topics = await res.json();
 
-      const res = await fetch(url);
-      const rows = await res.json();
+    const tbody = document.querySelector("#profitTable tbody");
+    tbody.innerHTML = "";
 
-      const tbody = document.querySelector("#profitTable tbody");
-      tbody.innerHTML = "";
+    Object.entries(topics).forEach(([topic, data]) => {
 
-      rows.forEach(row => {
-        const tr = document.createElement("tr");
+      // topic row (WITH TOTALS)
+      tbody.appendChild(createTopicRow(topic, data.totals));
 
-        tr.innerHTML = `
-          <td>${row.category_name}</td>
-          <td>${row.jan}</td><td>${row.fev}</td><td>${row.mar}</td><td>${row.abr}</td>
-          <td>${row.mai}</td><td>${row.jun}</td>
-          <td>${row.jul}</td><td>${row.ago}</td><td>${row.set}</td>
-          <td>${row.out}</td><td>${row.nov}</td><td>${row.dez}</td>
-        `;
-
-        tbody.appendChild(tr);
+      // categories
+      data.categories.forEach(cat => {
+        tbody.appendChild(createCategoryRow(cat));
       });
-    }
+    });
+  }
+
+  function createTopicRow(topic, totals) {
+    const tr = document.createElement("tr");
+    tr.classList.add("topic-row");
+
+    tr.innerHTML = `
+      <td>${topic}</td>
+      <td>${totals.jan}</td><td>${totals.fev}</td><td>${totals.mar}</td><td>${totals.abr}</td>
+      <td>${totals.mai}</td><td>${totals.jun}</td>
+      <td>${totals.jul}</td><td>${totals.ago}</td><td>${totals.set}</td>
+      <td>${totals.out}</td><td>${totals.nov}</td><td>${totals.dez}</td>
+    `;
+    return tr;
+  }
+
+  function createCategoryRow(row) {
+    const tr = document.createElement("tr");
+    tr.classList.add("category-row");
+
+    tr.innerHTML = `
+      <td>${row.category_name}</td>
+      <td>${row.jan}</td><td>${row.fev}</td><td>${row.mar}</td><td>${row.abr}</td>
+      <td>${row.mai}</td><td>${row.jun}</td>
+      <td>${row.jul}</td><td>${row.ago}</td><td>${row.set}</td>
+      <td>${row.out}</td><td>${row.nov}</td><td>${row.dez}</td>
+    `;
+    return tr;
+  }
 
     document.getElementById("accountSelect").addEventListener("change", e => {
       loadMonthlyProfit(e.target.value);
