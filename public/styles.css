@@ -5,13 +5,13 @@
             padding: 20px;
         }
 
-        .topic-row {
+        tbody tr.topic-row {
             font-weight: bold;
-            color: #be192f;
-            background-color: #a31a1a7e;
+            color: #000000;
+            background-color: #ffc0c0d0;
         }
 
-        .category-row td:first-child {
+        tbody tr.category-row td:first-child {
             padding-left: 30px;
         }
 
@@ -57,16 +57,6 @@
             border-bottom: 1px solid #ddd;
         }
 
-        /* Alternate row colors */
-        tbody tr:nth-child(even) {
-            background-color: #f9f9f9;
-        }
-
-        /* Hover effect on rows */
-        tbody tr:hover {
-            background-color: #f1c0c0;
-            cursor: pointer;
-        }
 
         /* First column styling */
         td:first-child {

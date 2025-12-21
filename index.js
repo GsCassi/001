@@ -98,9 +98,6 @@ app.get("/api/monthly-profit", async (req, res) => {
 
      const { rows } = await pool.query(query, [account]);
 
-    /* =========================
-       GROUPING + TOTALS
-       ========================= */
 
     const topics = {};
 
