@@ -1,66 +1,130 @@
+
  /* Basic page styling */
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #f4f4f4;
-            padding: 20px;
-        }
 
-        tbody tr.topic-row {
-            font-weight: bold;
-            color: #000000;
-            background-color: #ffc0c0d0;
-        }
+.Container {
+  max-width: 1100px;
+  margin: auto;
+  background: white;
+  padding: 30px 40px;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+}
 
-        tbody tr.category-row td:first-child {
-            padding-left: 30px;
-        }
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
 
-        /* Center the table container */
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-            background-color: white;
-            padding: 30px;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
+/* ---------- Select (Dropdown) ---------- */
 
-        /* Heading styles */
-        h1 {
-            color: #333;
-            text-align: center;
-            margin-bottom: 30px;
-        }
+.select {
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+  font-size: 14px;
+  background-color: #fff;
+  cursor: pointer;
+  transition: border 0.2s, box-shadow 0.2s;
+}
 
-        /* Table styling */
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-        }
+.select:hover {
+  border-color: #be192f;
+}
 
-        /* Table header styling */
-        thead {
-            background-color: #be192f;
-            color: white;
-        }
+.select:focus {
+  outline: none;
+  border-color: #be192f;
+  box-shadow: 0 0 0 2px rgba(190, 25, 47, 0.2);
+}
 
-        th {
-            padding: 12px;
-            text-align: left;
-            font-weight: bold;
-        }
+/* ---------- Buttons ---------- */
 
-        /* Table data cell styling */
-        td {
-            padding: 12px;
-            border-bottom: 1px solid #ddd;
-        }
+.filters {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 30px;
+}
+
+.btn {
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 1px solid #be192f;
+  background-color: white;
+  color: #be192f;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn:hover {
+  background-color: #be192f;
+  color: white;
+}
+
+.btn.active {
+  background-color: #be192f;
+  color: white;
+}
 
 
-        /* First column styling */
-        td:first-child {
-            font-weight: bold;
-            color: #555;
-        }
 
+table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+
+body {
+    font-family: Arial, sans-serif;
+    background-color: #f4f4f4;
+    padding: 20px;
+}
+
+tbody tr.topic-row {
+    font-weight: bold;
+    color: #000000;
+    background-color: #ffc0c0d0;
+}
+
+tbody tr.category-row td:first-child {
+    padding-left: 30px;
+}
+
+/* Heading styles */
+h1 {
+    color: #333;
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+/* Table styling */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+}
+
+/* Table header styling */
+thead {
+    background-color: #be192f;
+    color: white;
+}
+
+th {
+    padding: 12px;
+    text-align: left;
+    font-weight: bold;
+}
+
+/* Table data cell styling */
+td {
+    padding: 12px;
+    border-bottom: 1px solid #ddd;
+}
+
+
+/* First column styling */
+td:first-child {
+    font-weight: bold;
+    color: #555;
+}
+
+.topic-row { font-weight: bold; background: #eee; }

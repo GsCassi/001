@@ -58,15 +58,18 @@ app.get("/api/monthly-profit", async (req, res) => {
           SELECT 
               codigo,
               ccusto,
+              EXTRACT(YEAR  FROM mes)  AS ano,
               EXTRACT(MONTH FROM mes) AS mes,
               SUM(debito + credito) AS total
           FROM transacoes
-          GROUP BY codigo, ccusto, mes
+          GROUP BY codigo, ccusto, ano, mes
       )
 
       SELECT 
+          tx.ano,
           c.topico,
           c.nome_da_categoria AS category_name,
+          c.id,
 
           SUM(CASE WHEN tx.mes = 1 THEN tx.total ELSE 0 END) AS jan,
           SUM(CASE WHEN tx.mes = 2 THEN tx.total ELSE 0 END) AS fev,
@@ -86,8 +89,8 @@ app.get("/api/monthly-profit", async (req, res) => {
       LEFT JOIN tx ON tx.codigo = co.codigo
           AND ($1::text IS NULL OR tx.ccusto = $1::text)
 
-      GROUP BY c.topico, c.nome_da_categoria
-      ORDER BY c.topico, c.nome_da_categoria;
+      GROUP BY tx.ano, c.topico, c.nome_da_categoria, c.id
+      ORDER BY tx.ano, c.topico, c.id;
     `;
 
     /*
@@ -99,11 +102,15 @@ app.get("/api/monthly-profit", async (req, res) => {
      const { rows } = await pool.query(query, [account]);
 
 
-    const topics = {};
+    const result = {};
 
     for (const row of rows) {
-      if (!topics[row.topico]) {
-        topics[row.topico] = {
+      const year = row.ano;
+      //If the object with the current year doesn't exist, create it
+      if (!result[year]) result[year] = {};
+      //If the current topic doesn't exist, create the topic
+      if (!result[year][row.topico]) {
+        result[year][row.topico] = {
           totals: {
             jan: 0, fev: 0, mar: 0, abr: 0, mai: 0, jun: 0,
             jul: 0, ago: 0, set: 0, out: 0, nov: 0, dez: 0
@@ -112,16 +119,16 @@ app.get("/api/monthly-profit", async (req, res) => {
         };
       }
 
-      // accumulate totals
-      for (const m of Object.keys(topics[row.topico].totals)) {
-        topics[row.topico].totals[m] += Number(row[m]);
+      //result[anoAtual][topicoAtual].keysDoObjetoTotal("jan", "fev"...)
+      for (const m in result[year][row.topico].totals) {
+        //m = "jan"  totals.jan += Number(row.jan)
+        result[year][row.topico].totals[m] += Number(row[m]);
       }
-
-      // store full category row
-      topics[row.topico].categories.push(row);
+      //add the current row (ano, topico, category_name...) to the categories array
+      result[year][row.topico].categories.push(row);
     }
 
-    res.json(topics);
+    res.json(result);
   } catch (err) {
     console.error(err);
     res.status(500).send("Server error fetching data");

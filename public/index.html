@@ -1,128 +1,157 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   <meta charset="UTF-8">
   <title>001</title>
   <link rel="stylesheet" href="styles.css">
 </head>
+
 <body>
   <div class="Container">
-  <h1>Relatório Financeiro</h1>
+    <h1>Relatório Financeiro</h1>
 
-  <label for="accountSelect">Escolha a conta:</label>
-<select id="accountSelect">
-  <option value="">Todas as contas</option>
-</select>
+    <label for="accountSelect">Escolha a conta:</label>
+    <select id="accountSelect" class="select">
+      <option value="">Todas as contas</option>
+    </select>
+    
+    <br><br>
 
-<br><br>
+    <div class="filters">
+      <button class="btn active" onclick="showAllMonths()">Ano</button>
+      <button class="btn" onclick="showTrimester(1)">T1</button>
+      <button class="btn" onclick="showTrimester(2)">T2</button>
+      <button class="btn" onclick="showTrimester(3)">T3</button>
+      <button class="btn" onclick="showTrimester(4)">T4</button>
+    </div>
 
-  <ul id="productList"></ul>
+    <br><br>
 
-  <h1>2025</h1>
-<table border="1" id="profitTable">
-  <thead>
-    <tr>
-      <th>Categoria</th>
-      <th>Jan</th><th>Fev</th><th>Mar</th><th>Abr</th><th>Mai</th><th>Jun</th>
-      <th>Jul</th><th>Ago</th><th>Set</th><th>Out</th><th>Nov</th><th>Dez</th>
-    </tr>
-  </thead>
-  <tbody></tbody>
-</table>
+    <div id="yearsContainer"></div>
 
+    <script>
 
-  <script>
+      const months = [
+        ["jan","Jan"],["fev","Fev"],["mar","Mar"],
+        ["abr","Abr"],["mai","Mai"],["jun","Jun"],
+        ["jul","Jul"],["ago","Ago"],["set","Set"],
+        ["out","Out"],["nov","Nov"],["dez","Dez"]
+      ];
+      
+      const trimesters = {
+        1: [1,2,3], 2: [4,5,6], 3: [7,8,9], 4: [10,11,12]
+      };
+      
+      /* ---------- LOAD DATA ---------- */
 
-    /*
-    async function loadProducts() {
-      const res = await fetch("/api/products");
-      const products = await res.json();
+      async function loadAccounts() {
+        const res = await fetch("/api/accounts");
+        const data = await res.json();
+        const sel = document.getElementById("accountSelect");
+        data.forEach(a => {
+          const o = document.createElement("option");
+          o.value = a.ccusto;
+          o.textContent = a.ccusto;
+          sel.appendChild(o);
+        });
+      }
 
-      const ul = document.getElementById("productList");
-      products.forEach(p => {
-        const li = document.createElement("li");
-        li.textContent = `${p.product_id} - ${p.product_name}`;
-        ul.appendChild(li);
-      });
-    }
+      async function loadMonthlyProfit(account = "") {
+        let url = "/api/monthly-profit";
+        if (account) url += `?account=${account}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        renderYears(data);
+      }
 
-    loadProducts();
-    */
+      /* ---------- RENDER ---------- */
 
-    async function loadAccounts() {
-      const res = await fetch("/api/accounts");
-      const accounts = await res.json();
+      function renderYears(data) {
+        const container = document.getElementById("yearsContainer");
+        container.innerHTML = "";
 
-      const select = document.getElementById("accountSelect");
+        Object.keys(data).sort().forEach(year => {
+          const h = document.createElement("h2");
+          h.textContent = `▶ ${year}`;
 
-      accounts.forEach(acc => {
-        const option = document.createElement("option");
-        option.value = acc.ccusto;
-        option.textContent = acc.ccusto;
-        select.appendChild(option);
-      });
-    }
+          const table = document.createElement("table");
+          table.style.display = "none";
 
-    //let currentTopic = null
-
-   async function loadMonthlyProfit(account = "") {
-    let url = "/api/monthly-profit";
-    if (account) url += `?account=${account}`;
-
-    const res = await fetch(url);
-    const topics = await res.json();
-
-    const tbody = document.querySelector("#profitTable tbody");
-    tbody.innerHTML = "";
-
-    Object.entries(topics).forEach(([topic, data]) => {
-
-      // topic row (WITH TOTALS)
-      tbody.appendChild(createTopicRow(topic, data.totals));
-
-      // categories
-      data.categories.forEach(cat => {
-        tbody.appendChild(createCategoryRow(cat));
-      });
-    });
-  }
-
-  function createTopicRow(topic, totals) {
-    const tr = document.createElement("tr");
-    tr.classList.add("topic-row");
-
-    tr.innerHTML = `
-      <td>${topic}</td>
-      <td>${totals.jan}</td><td>${totals.fev}</td><td>${totals.mar}</td><td>${totals.abr}</td>
-      <td>${totals.mai}</td><td>${totals.jun}</td>
-      <td>${totals.jul}</td><td>${totals.ago}</td><td>${totals.set}</td>
-      <td>${totals.out}</td><td>${totals.nov}</td><td>${totals.dez}</td>
+          table.innerHTML = `
+      <thead>
+        <tr>
+          <th>Categoria</th>
+          ${months.map((m, i) => `<th data-month="${i + 1}">${m[1]}</th>`).join("")}
+        </tr>
+      </thead>
+      <tbody></tbody>
     `;
-    return tr;
-  }
 
-  function createCategoryRow(row) {
-    const tr = document.createElement("tr");
-    tr.classList.add("category-row");
+          const tbody = table.querySelector("tbody");
 
-    tr.innerHTML = `
-      <td>${row.category_name}</td>
-      <td>${row.jan}</td><td>${row.fev}</td><td>${row.mar}</td><td>${row.abr}</td>
-      <td>${row.mai}</td><td>${row.jun}</td>
-      <td>${row.jul}</td><td>${row.ago}</td><td>${row.set}</td>
-      <td>${row.out}</td><td>${row.nov}</td><td>${row.dez}</td>
-    `;
-    return tr;
-  }
+          Object.entries(data[year]).forEach(([topic, obj]) => {
+            tbody.appendChild(topicRow(topic, obj.totals));
+            obj.categories.forEach(c => tbody.appendChild(categoryRow(c)));
+          });
 
-    document.getElementById("accountSelect").addEventListener("change", e => {
-      loadMonthlyProfit(e.target.value);
-    });
+          h.onclick = () => {
+            table.style.display = table.style.display === "none" ? "table" : "none";
+            h.textContent = (table.style.display === "none" ? "▶ " : "▼ ") + year;
+          };
 
-    loadAccounts();
-    loadMonthlyProfit();  
+          container.appendChild(h);
+          container.appendChild(table);
+        });
+      }
 
-  </script>
+      /* ---------- ROWS ---------- */
+
+      function topicRow(name, totals) {
+        const tr = document.createElement("tr");
+        tr.className = "topic-row";
+        tr.innerHTML = `<td>${name}</td>` +
+          months.map((m, i) => `<td data-month="${i + 1}">${totals[m[0]].toFixed(2)}</td>`).join("");
+        return tr;
+      }
+
+      function categoryRow(r) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${r.category_name}</td>` +
+          months.map((m, i) => `<td data-month="${i + 1}">${Number(r[m[0]]).toFixed(2)}</td>`).join("");
+        return tr;
+      }
+
+      /* ---------- FILTERS ---------- */
+
+      function hideAllMonths() {
+        document.querySelectorAll("[data-month]").forEach(td => td.style.display = "none");
+      }
+
+      function showMonth(m) {
+        document.querySelectorAll(`[data-month="${m}"]`)
+          .forEach(td => td.style.display = "");
+      }
+
+      function showTrimester(t) {
+        hideAllMonths();
+        trimesters[t].forEach(showMonth);
+      }
+
+      function showAllMonths() {
+        document.querySelectorAll("[data-month]").forEach(td => td.style.display = "");
+      }
+
+      /* ---------- INIT ---------- */
+
+      document.getElementById("accountSelect")
+        .addEventListener("change", e => loadMonthlyProfit(e.target.value));
+
+      loadAccounts();
+      loadMonthlyProfit();
+
+    </script>
   </div>
 </body>
+
 </html>
