@@ -15,7 +15,7 @@
     <select id="accountSelect" class="select">
       <option value="">Todas as contas</option>
     </select>
-    
+
     <br><br>
 
     <div class="filters">
@@ -31,6 +31,10 @@
     <div id="yearsContainer"></div>
 
     <script>
+      const numberFormatter = new Intl.NumberFormat("pt-BR", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
 
       const months = [
         ["jan","Jan"],["fev","Fev"],["mar","Mar"],
@@ -110,13 +114,20 @@
       function topicRow(name, totals) {
         const tr = document.createElement("tr");
         tr.className = "topic-row";
-        tr.innerHTML = `<td>${name}</td>` +
-          months.map((m, i) => `<td data-month="${i + 1}">${totals[m[0]].toFixed(2)}</td>`).join("");
+        tr.innerHTML = `<td>
+          <span class="topic-toggle">▼</span>
+          ${name}
+          </td>` +
+          months.map((m, i) => `<td data-month="${i + 1}">${numberFormatter.format(totals[m[0]])}</td>`).join("");
+
+           tr.addEventListener("click", () => toggleCategories(tr));
         return tr;
       }
 
       function categoryRow(r) {
         const tr = document.createElement("tr");
+        tr.className = "category-row";
+
         tr.innerHTML = `<td>${r.category_name}</td>` +
           months.map((m, i) => `<td data-month="${i + 1}">${Number(r[m[0]]).toFixed(2)}</td>`).join("");
         return tr;
@@ -140,6 +151,27 @@
 
       function showAllMonths() {
         document.querySelectorAll("[data-month]").forEach(td => td.style.display = "");
+      }
+
+      function toggleCategories(topicRow) {
+        //getting the next sibling. The next row
+        let row = topicRow.nextElementSibling;
+        //This adds the "collapsed" class if it doesn't exist and returns true. Returns false if it removes the class
+        const isCollapsed = topicRow.classList.toggle("collapsed");
+
+        //while the next row is not a topic row
+        while (row && !row.classList.contains("topic-row")) {
+          if (row.classList.contains("category-row")) {
+            //if it is collapsed, display none, else restore the normal css
+            row.style.display = isCollapsed ? "none" : "";
+          }
+          //get the next sibling to continue the loop
+          row = row.nextElementSibling;
+        }
+        //get the span with the arrow
+        const icon = topicRow.querySelector(".topic-toggle");
+        //if we just collapsed, change the arrow
+        if (icon) icon.textContent = isCollapsed ? "▶" : "▼";
       }
 
       /* ---------- INIT ---------- */
