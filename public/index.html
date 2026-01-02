@@ -129,7 +129,7 @@
         tr.className = "category-row";
 
         tr.innerHTML = `<td>${r.category_name}</td>` +
-          months.map((m, i) => `<td data-month="${i + 1}">${Number(r[m[0]]).toFixed(2)}</td>`).join("");
+          months.map((m, i) => `<td data-month="${i + 1}">${numberFormatter.format(r[m[0]])}</td>`).join("");
         return tr;
       }
 

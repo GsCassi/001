@@ -140,9 +140,6 @@ td:first-child {
   font-weight: bold;
 }
 
-.topic-row.collapsed {
-  opacity: 0.9;
-}
 
 .category-row td:first-child::before {
   content: "– ";
