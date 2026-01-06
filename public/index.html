@@ -17,6 +17,12 @@
     </select>
 
     <br><br>
+    <label for="ownerSelect">Escolha o gerente:</label>
+<select id="ownerSelect" class="select">
+  <option value="">Todos os gerentes</option>
+</select>
+
+    <br><br>
 
     <div class="filters">
       <button class="btn active" onclick="showAllMonths()">Ano</button>
@@ -61,9 +67,31 @@
         });
       }
 
-      async function loadMonthlyProfit(account = "") {
+      async function loadOwners() {
+        const res = await fetch("/api/owners");
+        const data = await res.json();
+
+        const sel = document.getElementById("ownerSelect");
+
+        data.forEach(o => {
+          const opt = document.createElement("option");
+          opt.value = o.gerente;
+          opt.textContent = o.gerente;
+          sel.appendChild(opt);
+        });
+      }
+
+      async function loadMonthlyProfit() {
+        const account = document.getElementById("accountSelect").value;
+        const owner   = document.getElementById("ownerSelect").value;
+
+        let params = [];
+        if (account) params.push(`account=${encodeURIComponent(account)}`);
+        if (owner)   params.push(`owner=${encodeURIComponent(owner)}`);
+
         let url = "/api/monthly-profit";
-        if (account) url += `?account=${account}`;
+        if (params.length) url += "?" + params.join("&");
+
         const res = await fetch(url);
         const data = await res.json();
         renderYears(data);
@@ -177,9 +205,13 @@
       /* ---------- INIT ---------- */
 
       document.getElementById("accountSelect")
-        .addEventListener("change", e => loadMonthlyProfit(e.target.value));
+        .addEventListener("change", loadMonthlyProfit);
+
+      document.getElementById("ownerSelect")
+        .addEventListener("change", loadMonthlyProfit);
 
       loadAccounts();
+      loadOwners();
       loadMonthlyProfit();
 
     </script>
