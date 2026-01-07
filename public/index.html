@@ -103,9 +103,12 @@
         const container = document.getElementById("yearsContainer");
         container.innerHTML = "";
 
-        Object.keys(data).sort().forEach(year => {
+        Object.keys(data).filter(year => year !== "null")
+          .sort((a, b) => Number(b) - Number(a))
+          .forEach(year => {
           const h = document.createElement("h2");
           h.textContent = `▶ ${year}`;
+          h.className = "year"
 
           const table = document.createElement("table");
           table.style.display = "none";
@@ -124,7 +127,11 @@
 
           Object.entries(data[year]).forEach(([topic, obj]) => {
             tbody.appendChild(topicRow(topic, obj.totals));
-            obj.categories.forEach(c => tbody.appendChild(categoryRow(c)));
+            obj.categories.forEach(c => {
+              const row = categoryRow(c);
+              row.style.display = "none"; //  hidden by default
+              tbody.appendChild(row);
+            });
           });
 
           h.onclick = () => {
@@ -141,9 +148,9 @@
 
       function topicRow(name, totals) {
         const tr = document.createElement("tr");
-        tr.className = "topic-row";
+        tr.className = "topic-row collapsed";
         tr.innerHTML = `<td>
-          <span class="topic-toggle">▼</span>
+          <span class="topic-toggle">▶</span>
           ${name}
           </td>` +
           months.map((m, i) => `<td data-month="${i + 1}">${numberFormatter.format(totals[m[0]])}</td>`).join("");

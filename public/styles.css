@@ -2,7 +2,7 @@
  /* Basic page styling */
 
 .Container {
-  max-width: 1500px;
+  max-width: 2000px;
   margin: auto;
   background: white;
   padding: 30px 40px;
@@ -125,6 +125,10 @@ td {
 td:first-child {
     font-weight: bold;
     color: #555;
+}
+
+.year {
+  cursor: pointer;
 }
 
 .topic-row { font-weight: bold; 
