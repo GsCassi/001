@@ -4,6 +4,10 @@ const { Pool } = require("pg");
 //used for providing the path to the public
 const path = require("path");
 
+const multer = require("multer");
+const XLSX = require("xlsx");
+const upload = multer({ storage: multer.memoryStorage() });
+
 const app = express();
 
 // PostgreSQL connection
@@ -18,6 +22,112 @@ const pool = new Pool({
 // Serve static files (HTML)
 app.use(express.static(path.join(__dirname, "public")));
 
+function parseXls(buffer) {
+  const workbook = XLSX.read(buffer, { type: "buffer" });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+
+  return XLSX.utils.sheet_to_json(sheet, { defval: 0 });
+}
+
+
+
+//##change
+
+function mapRow(xlsRow, baseDate) {
+  return {
+    codigo: xlsRow["Código da Conta"],
+    descricao: xlsRow["Nome da Conta"],
+    ccusto: xlsRow["CodigoCentroDeCusto"],
+    //Uploading debito always negative and credito always positive
+    debito: -Math.abs(Number(xlsRow["Saldo Débito"]) || 0),
+    credito: Math.abs(Number(xlsRow["Saldo Credito"]) || 0),
+    /* Uploading the value as it is originally
+    debito: Number(xlsRow["Saldo Débito"]) || 0,
+    credito: Number(xlsRow["Saldo Credito"]) || 0,
+    */
+    mes: baseDate
+  };
+}
+
+app.post(
+  "/api/upload-transacoes",
+  upload.array("files", 2),
+  async (req, res) => {
+    const { month } = req.body;
+    const files = req.files;
+
+    if (!month) {
+      return res.status(400).send("Mês não informado");
+    }
+
+    if (!files || files.length === 0) {
+      return res.status(400).send("Nenhum arquivo enviado");
+    }
+
+    // month = "2025-12"
+    const [year, monthNum] = month.split("-");
+    const baseDate = new Date(year, monthNum - 1, 1);
+
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      // 🔥 Delete ALL data for this month
+      await client.query(
+        `
+        DELETE FROM transacoes
+        WHERE EXTRACT(YEAR FROM mes) = $1
+          AND EXTRACT(MONTH FROM mes) = $2
+        `,
+        [year, monthNum]
+      );
+
+      let inserted = 0;
+
+      for (const file of files) {
+        const rows = parseXls(file.buffer);
+
+        for (const xlsRow of rows) {
+          const row = mapRow(xlsRow, baseDate);
+
+          await client.query(
+            `
+            INSERT INTO transacoes
+              (codigo, descricao, ccusto, debito, credito, mes)
+            VALUES
+              ($1, $2, $3, $4, $5, $6)
+            `,
+            [
+              row.codigo,
+              row.descricao,
+              row.ccusto,
+              row.debito,
+              row.credito,
+              row.mes
+            ]
+          );
+
+          inserted++;
+        }
+      }
+
+      await client.query("COMMIT");
+
+      res.send(
+        `Upload concluído. ${inserted} registros inseridos para ${month}`
+      );
+    } catch (err) {
+      await client.query("ROLLBACK");
+      console.error(err);
+      res.status(500).send("Erro ao processar upload");
+    } finally {
+      client.release();
+    }
+  }
+);
+
+//##change
 
 // API route to fetch data; app.get will be triggered by the fetch on the html. /api/products
 //is the url path that will trigger the function

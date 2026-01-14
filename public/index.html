@@ -11,6 +11,23 @@
   <div class="Container">
     <h1>Relatório Financeiro</h1>
 
+    <br><br>
+
+    <form id="uploadForm">
+  <label>Mês de referência</label>
+  <input type="month" name="month" required />
+
+  <label>Arquivo XLS (1)</label>
+  <input type="file" name="files" accept=".xls,.xlsx" />
+
+  <label>Arquivo XLS (2)</label>
+  <input type="file" name="files" accept=".xls,.xlsx" />
+
+  <button type="submit">Enviar</button>
+</form>
+
+<br><br>
+
     <label for="accountSelect">Escolha a conta:</label>
     <select id="accountSelect" class="select">
       <option value="">Todas as contas</option>
@@ -169,6 +186,20 @@
       }
 
       /* ---------- FILTERS ---------- */
+
+      //Submit
+      document.getElementById("uploadForm").addEventListener("submit", async (e) => {
+        e.preventDefault();
+
+        const formData = new FormData(e.target);
+
+        const res = await fetch("/api/upload-transacoes", {
+          method: "POST",
+          body: formData
+        });
+
+        alert(await res.text());
+      });
 
       function hideAllMonths() {
         document.querySelectorAll("[data-month]").forEach(td => td.style.display = "none");
