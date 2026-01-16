@@ -75,14 +75,32 @@
       /* ---------- LOAD DATA ---------- */
 
       async function loadAccounts() {
-        const res = await fetch("/api/accounts");
+        const owner = document.getElementById("ownerSelect").value;
+        const accountSelect = document.getElementById("accountSelect");
+
+        let url = "/api/accounts";
+        if (owner) {
+          url += `?owner=${encodeURIComponent(owner)}`;
+        }
+
+        const res = await fetch(url);
         const data = await res.json();
-        const sel = document.getElementById("accountSelect");
+
+        // 🔥 FULL RESET (this is the missing piece)
+        accountSelect.innerHTML = "";
+
+        // Default option
+        const defaultOpt = document.createElement("option");
+        defaultOpt.value = "";
+        defaultOpt.textContent = "Todas as contas";
+        accountSelect.appendChild(defaultOpt);
+
+        // Add filtered accounts only
         data.forEach(a => {
-          const o = document.createElement("option");
-          o.value = a.ccusto;
-          o.textContent = a.ccusto;
-          sel.appendChild(o);
+          const opt = document.createElement("option");
+          opt.value = a.ccusto;
+          opt.textContent = a.ccusto;
+          accountSelect.appendChild(opt);
         });
       }
 
@@ -254,15 +272,15 @@ Object.entries(data[year]).forEach(([topic, obj]) => {
       /* ---------- ROWS ---------- */
       
       function titleRow(text) {
-        const tr = document.createElement("tr");
-        tr.className = "title-row";
-        tr.innerHTML = `
-          <td colspan="${months.length + 1}">
-            ${text}
-          </td>
-        `;
-        return tr;
-      }
+      const tr = document.createElement("tr");
+      tr.className = "title-row";
+      tr.innerHTML = `
+        <td colspan="${months.length + 1}">
+          ${text}
+        </td>
+      `;
+      return tr;
+    }
 
 
       function topicRow(name, totals) {
@@ -352,12 +370,12 @@ Object.entries(data[year]).forEach(([topic, obj]) => {
 
       document.getElementById("ownerSelect")
         .addEventListener("change", () => {
+          loadAccounts();
           loadMonthlyProfit();
           loadYearlyOverview();
         });
-
-      loadAccounts();
       loadOwners();
+      loadAccounts();
       loadYearlyOverview();
       loadMonthlyProfit();
 

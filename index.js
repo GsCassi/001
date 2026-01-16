@@ -144,15 +144,34 @@ app.post(
 */
 
 app.get("/api/accounts", async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT DISTINCT ccusto
-      FROM transacoes
-      WHERE ccusto IS NOT NULL
-      ORDER BY ccusto;
-    `);
+  const { owner } = req.query;
 
-    res.json(result.rows);
+  try {
+    let query;
+    let params = [];
+
+    if (!owner) {
+      // ✅ Todos os gerentes → all accounts
+      query = `
+        SELECT DISTINCT ccusto
+        FROM gerentes
+        WHERE ccusto IS NOT NULL
+        ORDER BY ccusto;
+      `;
+    } else {
+      // ✅ Filter by gerente
+      query = `
+        SELECT DISTINCT ccusto
+        FROM gerentes
+        WHERE gerente = $1
+          AND ccusto IS NOT NULL
+        ORDER BY ccusto;
+      `;
+      params.push(owner);
+    }
+
+    const { rows } = await pool.query(query, params);
+    res.json(rows);
   } catch (err) {
     console.error(err);
     res.status(500).send("Error fetching accounts");
