@@ -151,3 +151,10 @@ td:first-child {
   font-weight: normal;
   color: #444;
 }
+
+.title-row td {
+  font-weight: 700;
+  background-color: #f1f5f9;
+  text-transform: uppercase;
+  border-top: 2px solid #cbd5e1;
+}

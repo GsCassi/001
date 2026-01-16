@@ -51,6 +51,8 @@
 
     <br><br>
 
+    <div id="yearlyOverview"></div>
+<br><br>
     <div id="yearsContainer"></div>
 
     <script>
@@ -114,7 +116,85 @@
         renderYears(data);
       }
 
+      async function loadYearlyOverview() {
+        const account = document.getElementById("accountSelect").value;
+        const owner   = document.getElementById("ownerSelect").value;
+
+        let params = [];
+        if (account) params.push(`account=${encodeURIComponent(account)}`);
+        if (owner)   params.push(`owner=${encodeURIComponent(owner)}`);
+
+        let url = "/api/yearly-overview";
+        if (params.length) url += "?" + params.join("&");
+
+        const res = await fetch(url);
+        const json = await res.json();
+
+        renderYearlyOverview(json);
+      }
+
+
       /* ---------- RENDER ---------- */
+
+      function renderYearlyOverview({ years, data }) {
+        const container = document.getElementById("yearlyOverview");
+        container.innerHTML = "";
+
+        const table = document.createElement("table");
+
+        table.innerHTML = `
+          <thead>
+            <tr>
+              <th>Tópico</th>
+              ${years.map(y => `<th>${y}</th>`).join("")}
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        `;
+
+        const tbody = table.querySelector("tbody");
+          
+        let lastTitulo = null;
+
+        Object.entries(data).forEach(([topic, values]) => {
+          console.log(topic, values);
+
+          if (values.titulo && values.titulo !== lastTitulo) {
+                const trTitle = document.createElement("tr");
+                trTitle.className = "title-row";
+                trTitle.innerHTML = `
+                  <td colspan="${years.length + 2}">
+                    ${values.titulo}
+                  </td>
+                `;
+                tbody.appendChild(trTitle);
+                lastTitulo = values.titulo;
+              }
+
+          let rowTotal = 0;
+
+          const yearCells = years.map(y => {
+            const v = values[y] || 0;
+            rowTotal += v;
+            return `<td>${numberFormatter.format(v)}</td>`;
+          });
+            
+          const tr = document.createElement("tr");
+          tr.className = "topic-row";
+
+          tr.innerHTML = `
+            <td>${topic}</td>
+            ${yearCells.join("")}
+            <td><strong>${numberFormatter.format(rowTotal)}</strong></td>
+          `;
+
+          tbody.appendChild(tr);
+        });
+
+        container.appendChild(table);
+      }
+
 
       function renderYears(data) {
         const container = document.getElementById("yearsContainer");
@@ -142,14 +222,24 @@
 
           const tbody = table.querySelector("tbody");
 
-          Object.entries(data[year]).forEach(([topic, obj]) => {
-            tbody.appendChild(topicRow(topic, obj.totals));
-            obj.categories.forEach(c => {
-              const row = categoryRow(c);
-              row.style.display = "none"; //  hidden by default
-              tbody.appendChild(row);
-            });
-          });
+          let lastTitulo = null;
+
+Object.entries(data[year]).forEach(([topic, obj]) => {
+
+  // 👇 TITLE ROW (once per change)
+  if (obj.titulo && obj.titulo !== lastTitulo) {
+    tbody.appendChild(titleRow(obj.titulo));
+    lastTitulo = obj.titulo;
+  }
+
+  tbody.appendChild(topicRow(topic, obj.totals));
+
+  obj.categories.forEach(c => {
+    const row = categoryRow(c);
+    row.style.display = "none";
+    tbody.appendChild(row);
+  });
+});
 
           h.onclick = () => {
             table.style.display = table.style.display === "none" ? "table" : "none";
@@ -162,6 +252,18 @@
       }
 
       /* ---------- ROWS ---------- */
+      
+      function titleRow(text) {
+        const tr = document.createElement("tr");
+        tr.className = "title-row";
+        tr.innerHTML = `
+          <td colspan="${months.length + 1}">
+            ${text}
+          </td>
+        `;
+        return tr;
+      }
+
 
       function topicRow(name, totals) {
         const tr = document.createElement("tr");
@@ -243,13 +345,20 @@
       /* ---------- INIT ---------- */
 
       document.getElementById("accountSelect")
-        .addEventListener("change", loadMonthlyProfit);
+        .addEventListener("change", () => {
+          loadMonthlyProfit();
+          loadYearlyOverview();
+        });
 
       document.getElementById("ownerSelect")
-        .addEventListener("change", loadMonthlyProfit);
+        .addEventListener("change", () => {
+          loadMonthlyProfit();
+          loadYearlyOverview();
+        });
 
       loadAccounts();
       loadOwners();
+      loadYearlyOverview();
       loadMonthlyProfit();
 
     </script>

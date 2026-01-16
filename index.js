@@ -159,6 +159,74 @@ app.get("/api/accounts", async (req, res) => {
   }
 });
 
+
+
+//Overview
+
+app.get("/api/yearly-overview", async (req, res) => {
+  try {
+    const account = req.query.account || null;
+    const owner   = req.query.owner   || null;
+
+    const query = `
+      WITH tx AS (
+        SELECT
+          EXTRACT(YEAR FROM t.mes) AS ano,
+          SUM(t.debito + t.credito) AS total,
+          c.titulo,
+          c.topico
+        FROM transacoes t
+        JOIN codigos co ON co.codigo = t.codigo
+        JOIN categorias c ON c.id = co.id_da_categoria
+        WHERE
+          ($1::text IS NULL OR t.ccusto = $1)
+          AND (
+            $2::text IS NULL OR EXISTS (
+              SELECT 1
+              FROM gerentes g
+              WHERE g.ccusto = t.ccusto
+                AND g.gerente = $2
+            )
+          )
+        GROUP BY ano, c.titulo, c.topico
+      )
+      SELECT
+        titulo,
+        topico,
+        ano,
+        total
+      FROM tx
+      WHERE ano IS NOT NULL
+      ORDER BY titulo, topico, ano;
+    `;
+
+    const { rows } = await pool.query(query, [account, owner]);
+
+    // ---------- shape ----------
+    const result = {};
+    const yearsSet = new Set();
+
+    for (const r of rows) {
+      if (!result[r.topico]) result[r.topico] = {titulo: r.titulo};
+      result[r.topico][r.ano] = Number(r.total);
+      yearsSet.add(r.ano);
+    }
+
+    res.json({
+      years: Array.from(yearsSet).sort(),
+      data: result
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error fetching yearly overview");
+  }
+});
+
+
+
+
+
+//By year
 app.get("/api/monthly-profit", async (req, res) => {
   try {
     const account = req.query.account || null;
@@ -188,6 +256,7 @@ app.get("/api/monthly-profit", async (req, res) => {
 
 SELECT 
     tx.ano,
+    c.titulo,
     c.topico,
     c.nome_da_categoria AS category_name,
     c.id,
@@ -212,12 +281,14 @@ LEFT JOIN tx        ON tx.codigo = co.codigo
 
 GROUP BY
     tx.ano,
+    c.titulo,
     c.topico,
     c.nome_da_categoria,
     c.id
 
 ORDER BY
     tx.ano,
+    c.titulo,
     c.topico,
     c.id;
     `;
@@ -240,6 +311,7 @@ ORDER BY
       //If the current topic doesn't exist, create the topic
       if (!result[year][row.topico]) {
         result[year][row.topico] = {
+          titulo: row.titulo,
           totals: {
             jan: 0, fev: 0, mar: 0, abr: 0, mai: 0, jun: 0,
             jul: 0, ago: 0, set: 0, out: 0, nov: 0, dez: 0
