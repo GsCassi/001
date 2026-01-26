@@ -193,7 +193,8 @@ app.get("/api/yearly-overview", async (req, res) => {
           EXTRACT(YEAR FROM t.mes) AS ano,
           SUM(t.debito + t.credito) AS total,
           c.titulo,
-          c.topico
+          c.topico,
+          c.ordem_titulo
         FROM transacoes t
         JOIN codigos co ON co.codigo = t.codigo
         JOIN categorias c ON c.id = co.id_da_categoria
@@ -207,7 +208,7 @@ app.get("/api/yearly-overview", async (req, res) => {
                 AND g.gerente = $2
             )
           )
-        GROUP BY ano, c.titulo, c.topico
+        GROUP BY ano, c.titulo, c.topico, c.ordem_titulo
       )
       SELECT
         titulo,
@@ -216,7 +217,7 @@ app.get("/api/yearly-overview", async (req, res) => {
         total
       FROM tx
       WHERE ano IS NOT NULL
-      ORDER BY titulo, topico, ano;
+      ORDER BY ordem_titulo, topico, ano;
     `;
 
     const { rows } = await pool.query(query, [account, owner]);
@@ -307,6 +308,7 @@ GROUP BY
 
 ORDER BY
     tx.ano,
+    c.ordem_titulo,
     c.titulo,
     c.topico,
     c.id;

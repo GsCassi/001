@@ -14,19 +14,19 @@
     <br><br>
 
     <form id="uploadForm">
-  <label>Mês de referência</label>
-  <input type="month" name="month" required />
+      <label>Mês de referência</label>
+      <input type="month" name="month" required />
 
-  <label>Arquivo XLS (1)</label>
-  <input type="file" name="files" accept=".xls,.xlsx" />
+      <label>Arquivo XLS (1)</label>
+      <input type="file" name="files" accept=".xls,.xlsx" />
 
-  <label>Arquivo XLS (2)</label>
-  <input type="file" name="files" accept=".xls,.xlsx" />
+      <label>Arquivo XLS (2)</label>
+      <input type="file" name="files" accept=".xls,.xlsx" />
 
-  <button type="submit">Enviar</button>
-</form>
+      <button type="submit">Enviar</button>
+    </form>
 
-<br><br>
+    <br><br>
 
     <label for="accountSelect">Escolha a conta:</label>
     <select id="accountSelect" class="select">
@@ -35,9 +35,9 @@
 
     <br><br>
     <label for="ownerSelect">Escolha o gerente:</label>
-<select id="ownerSelect" class="select">
-  <option value="">Todos os gerentes</option>
-</select>
+    <select id="ownerSelect" class="select">
+      <option value="">Todos os gerentes</option>
+    </select>
 
     <br><br>
 
@@ -52,26 +52,33 @@
     <br><br>
 
     <div id="yearlyOverview"></div>
-<br><br>
+    <br><br>
     <div id="yearsContainer"></div>
 
     <script>
+      const TOTAL_LABELS = {
+        T1: "RECEITA LÍQUIDA",
+        T3: "TOTAL CUSTOS DIRETOS",
+        TOTAL_MARGIN: "MARGEM DE CONTRIBUIÇÃO CONTRATO",
+        T4: "RESULTADO DO CENTRO DE CUSTO"
+      };
+
       const numberFormatter = new Intl.NumberFormat("pt-BR", {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2
       });
 
       const months = [
-        ["jan","Jan"],["fev","Fev"],["mar","Mar"],
-        ["abr","Abr"],["mai","Mai"],["jun","Jun"],
-        ["jul","Jul"],["ago","Ago"],["set","Set"],
-        ["out","Out"],["nov","Nov"],["dez","Dez"]
+        ["jan", "Jan"], ["fev", "Fev"], ["mar", "Mar"],
+        ["abr", "Abr"], ["mai", "Mai"], ["jun", "Jun"],
+        ["jul", "Jul"], ["ago", "Ago"], ["set", "Set"],
+        ["out", "Out"], ["nov", "Nov"], ["dez", "Dez"]
       ];
-      
+
       const trimesters = {
-        1: [1,2,3], 2: [4,5,6], 3: [7,8,9], 4: [10,11,12]
+        1: [1, 2, 3], 2: [4, 5, 6], 3: [7, 8, 9], 4: [10, 11, 12]
       };
-      
+
       /* ---------- LOAD DATA ---------- */
 
       async function loadAccounts() {
@@ -120,11 +127,11 @@
 
       async function loadMonthlyProfit() {
         const account = document.getElementById("accountSelect").value;
-        const owner   = document.getElementById("ownerSelect").value;
+        const owner = document.getElementById("ownerSelect").value;
 
         let params = [];
         if (account) params.push(`account=${encodeURIComponent(account)}`);
-        if (owner)   params.push(`owner=${encodeURIComponent(owner)}`);
+        if (owner) params.push(`owner=${encodeURIComponent(owner)}`);
 
         let url = "/api/monthly-profit";
         if (params.length) url += "?" + params.join("&");
@@ -136,11 +143,11 @@
 
       async function loadYearlyOverview() {
         const account = document.getElementById("accountSelect").value;
-        const owner   = document.getElementById("ownerSelect").value;
+        const owner = document.getElementById("ownerSelect").value;
 
         let params = [];
         if (account) params.push(`account=${encodeURIComponent(account)}`);
-        if (owner)   params.push(`owner=${encodeURIComponent(owner)}`);
+        if (owner) params.push(`owner=${encodeURIComponent(owner)}`);
 
         let url = "/api/yearly-overview";
         if (params.length) url += "?" + params.join("&");
@@ -172,23 +179,23 @@
         `;
 
         const tbody = table.querySelector("tbody");
-          
+
         let lastTitulo = null;
 
         Object.entries(data).forEach(([topic, values]) => {
           console.log(topic, values);
 
           if (values.titulo && values.titulo !== lastTitulo) {
-                const trTitle = document.createElement("tr");
-                trTitle.className = "title-row";
-                trTitle.innerHTML = `
+            const trTitle = document.createElement("tr");
+            trTitle.className = "title-row";
+            trTitle.innerHTML = `
                   <td colspan="${years.length + 2}">
                     ${values.titulo}
                   </td>
                 `;
-                tbody.appendChild(trTitle);
-                lastTitulo = values.titulo;
-              }
+            tbody.appendChild(trTitle);
+            lastTitulo = values.titulo;
+          }
 
           let rowTotal = 0;
 
@@ -197,7 +204,7 @@
             rowTotal += v;
             return `<td>${numberFormatter.format(v)}</td>`;
           });
-            
+
           const tr = document.createElement("tr");
           tr.className = "topic-row";
 
@@ -214,73 +221,177 @@
       }
 
 
-      function renderYears(data) {
-        const container = document.getElementById("yearsContainer");
-        container.innerHTML = "";
-
-        Object.keys(data).filter(year => year !== "null")
-          .sort((a, b) => Number(b) - Number(a))
-          .forEach(year => {
-          const h = document.createElement("h2");
-          h.textContent = `▶ ${year}`;
-          h.className = "year"
-
-          const table = document.createElement("table");
-          table.style.display = "none";
-
-          table.innerHTML = `
-      <thead>
-        <tr>
-          <th>Categoria</th>
-          ${months.map((m, i) => `<th data-month="${i + 1}">${m[1]}</th>`).join("")}
-        </tr>
-      </thead>
-      <tbody></tbody>
-    `;
-
-          const tbody = table.querySelector("tbody");
-
-          let lastTitulo = null;
-
-Object.entries(data[year]).forEach(([topic, obj]) => {
-
-  // 👇 TITLE ROW (once per change)
-  if (obj.titulo && obj.titulo !== lastTitulo) {
-    tbody.appendChild(titleRow(obj.titulo));
-    lastTitulo = obj.titulo;
-  }
-
-  tbody.appendChild(topicRow(topic, obj.totals));
-
-  obj.categories.forEach(c => {
-    const row = categoryRow(c);
-    row.style.display = "none";
-    tbody.appendChild(row);
-  });
-});
-
-          h.onclick = () => {
-            table.style.display = table.style.display === "none" ? "table" : "none";
-            h.textContent = (table.style.display === "none" ? "▶ " : "▼ ") + year;
-          };
-
-          container.appendChild(h);
-          container.appendChild(table);
-        });
+      function emptyMonths() {
+        return {
+          jan: 0, fev: 0, mar: 0, abr: 0, mai: 0, jun: 0,
+          jul: 0, ago: 0, set: 0, out: 0, nov: 0, dez: 0
+        };
       }
 
+      function addMonths(target, source) {
+        for (const k in target) {
+          target[k] += source[k] || 0;
+        }
+      }
+
+      function sumRow(label, totals) {
+        const tr = document.createElement("tr");
+        tr.className = "sum-row";
+
+        tr.innerHTML = `
+          <td>${label}</td>
+          ${months.map(m => `
+            <td>${numberFormatter.format(totals[m[0]])}</td>
+          `).join("")}
+        `;
+
+        return tr;
+      }
+
+      function renderYears(data) {
+  const container = document.getElementById("yearsContainer");
+  container.innerHTML = "";
+
+  Object.keys(data)
+    .filter(year => year !== "null")
+    .sort((a, b) => Number(b) - Number(a))
+    .forEach(year => {
+
+      const h = document.createElement("h2");
+      h.textContent = `▶ ${year}`;
+      h.className = "year";
+
+      const table = document.createElement("table");
+      table.style.display = "none";
+
+      table.innerHTML = `
+        <thead>
+          <tr>
+            <th>Categoria</th>
+            ${months.map((m, i) => `<th data-month="${i + 1}">${m[1]}</th>`).join("")}
+          </tr>
+        </thead>
+        <tbody></tbody>
+      `;
+
+      const tbody = table.querySelector("tbody");
+
+      // ---------- STATE ----------
+      let titleIndex = 0;
+      let currentTitle = null;
+      let titleSum = emptyMonths();
+
+      const T1 = emptyMonths();
+      const T2 = emptyMonths();
+      const T3 = emptyMonths();
+      const totalMargin = emptyMonths();
+
+      let lastTitulo = null;
+
+      // ---------- LOOP ----------
+      Object.entries(data[year]).forEach(([topic, obj]) => {
+
+        // ===== TITLE CHANGE =====
+        if (obj.titulo !== lastTitulo) {
+
+          // 🔒 Close previous title
+          if (currentTitle) {
+
+            // store raw totals
+            if (titleIndex === 1) addMonths(T1, titleSum);
+            if (titleIndex === 2) addMonths(T2, titleSum);
+            if (titleIndex === 3) addMonths(T3, titleSum);
+
+            // ----- RENDER TOTALS -----
+
+            // Title 1
+            if (titleIndex === 1) {
+              tbody.appendChild(
+                sumRow(TOTAL_LABELS.T1, titleSum)
+              );
+            }
+
+            // Title 3 (two rows)
+            if (titleIndex === 3) {
+
+              // Row 1: T2 + T3
+              const totalT3 = emptyMonths();
+              addMonths(totalT3, T2);
+              addMonths(totalT3, T3);
+
+              tbody.appendChild(
+                sumRow(TOTAL_LABELS.T3, titleSum)
+              );
+
+              // Row 2: Total Margin = T1 + T2 + T3
+              addMonths(totalMargin, T1);
+              addMonths(totalMargin, T2);
+              addMonths(totalMargin, T3);
+
+              tbody.appendChild(
+                sumRow(TOTAL_LABELS.TOTAL_MARGIN, totalMargin)
+              );
+            }
+
+            titleSum = emptyMonths();
+          }
+
+          // 🔓 Start new title
+          titleIndex++;
+          currentTitle = obj.titulo;
+          lastTitulo = obj.titulo;
+
+          tbody.appendChild(titleRow(obj.titulo));
+        }
+
+        // ===== TOPIC =====
+        tbody.appendChild(topicRow(topic, obj.totals));
+        addMonths(titleSum, obj.totals);
+
+        // ===== CATEGORIES =====
+        obj.categories.forEach(c => {
+          const row = categoryRow(c);
+          row.style.display = "none";
+          tbody.appendChild(row);
+        });
+      });
+
+      // ---------- CLOSE LAST TITLE (Title 4) ----------
+      if (currentTitle && titleIndex === 4) {
+
+        const finalT4 = emptyMonths();
+        addMonths(finalT4, titleSum);      // T4
+        addMonths(finalT4, totalMargin);   // + Total Margin
+
+        tbody.appendChild(
+          sumRow(TOTAL_LABELS.T4, finalT4)
+        );
+      }
+
+      // ---------- TOGGLE ----------
+      h.onclick = () => {
+        table.style.display = table.style.display === "none" ? "table" : "none";
+        h.textContent = (table.style.display === "none" ? "▶ " : "▼ ") + year;
+      };
+
+      container.appendChild(h);
+      container.appendChild(table);
+    });
+}
+        
+
       /* ---------- ROWS ---------- */
-      
+
       function titleRow(text) {
-      const tr = document.createElement("tr");
-      tr.className = "title-row";
-      tr.innerHTML = `
+        const tr = document.createElement("tr");
+        tr.className = "title-row";
+        tr.innerHTML = `
         <td colspan="${months.length + 1}">
           ${text}
         </td>
       `;
-      return tr;
-    }
+        return tr;
+      }
 
 
       function topicRow(name, totals) {
@@ -292,7 +403,7 @@ Object.entries(data[year]).forEach(([topic, obj]) => {
           </td>` +
           months.map((m, i) => `<td data-month="${i + 1}">${numberFormatter.format(totals[m[0]])}</td>`).join("");
 
-           tr.addEventListener("click", () => toggleCategories(tr));
+        tr.addEventListener("click", () => toggleCategories(tr));
         return tr;
       }
 

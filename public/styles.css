@@ -158,3 +158,40 @@ td:first-child {
   text-transform: uppercase;
   border-top: 2px solid #cbd5e1;
 }
+
+.sum-row td {
+  font-weight: bold;
+  background-color: #e2e8f0;
+  border-top: 2px dashed #94a3b8;
+}
+
+
+#uploadForm {
+  max-width: 400px;
+}
+
+#uploadForm label {
+  display: block;
+  margin-top: 1rem;
+  font-weight: bold;
+}
+
+#uploadForm input {
+  display: block;
+  width: 100%;
+  margin-top: 0.25rem;
+  padding: 0.5rem;
+}
+
+#uploadForm button {
+  margin-top: 1.5rem;
+  padding: 0.75rem 2rem;
+  background: #4CAF50;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+
+#uploadForm button:hover {
+  background: #45a049;
+}
