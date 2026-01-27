@@ -75,6 +75,9 @@
         ["out", "Out"], ["nov", "Nov"], ["dez", "Dez"]
       ];
 
+
+      let activeMonths = [1,2,3,4,5,6,7,8,9,10,11,12];
+
       const trimesters = {
         1: [1, 2, 3], 2: [4, 5, 6], 3: [7, 8, 9], 4: [10, 11, 12]
       };
@@ -220,6 +223,17 @@
         container.appendChild(table);
       }
 
+      function filteredTotals(totals) {
+        const result = emptyMonths();
+
+        activeMonths.forEach(m => {
+          const key = months[m - 1][0]; // 1 → jan, 2 → fev...
+          result[key] = totals[key];
+        });
+
+        return result;
+      }
+
 
       function emptyMonths() {
         return {
@@ -240,9 +254,17 @@
 
         tr.innerHTML = `
           <td>${label}</td>
-          ${months.map(m => `
-            <td>${numberFormatter.format(totals[m[0]])}</td>
-          `).join("")}
+          ${months.map((m, i) => {
+            const monthIndex = i + 1;
+            const isVisible = activeMonths.includes(monthIndex);
+
+            return `
+              <td data-month="${monthIndex}"
+                  style="display:${isVisible ? "" : "none"}">
+                ${numberFormatter.format(totals[m[0]])}
+              </td>
+            `;
+          }).join("")}
         `;
 
         return tr;
@@ -307,7 +329,10 @@
             // Title 1
             if (titleIndex === 1) {
               tbody.appendChild(
-                sumRow(TOTAL_LABELS.T1, titleSum)
+                sumRow(
+                  TOTAL_LABELS.T1,
+                  filteredTotals(titleSum)
+                )
               );
             }
 
@@ -320,7 +345,10 @@
               addMonths(totalT3, T3);
 
               tbody.appendChild(
-                sumRow(TOTAL_LABELS.T3, titleSum)
+                sumRow(
+                  TOTAL_LABELS.T3,
+                  filteredTotals(titleSum)
+                )
               );
 
               // Row 2: Total Margin = T1 + T2 + T3
@@ -329,7 +357,10 @@
               addMonths(totalMargin, T3);
 
               tbody.appendChild(
-                sumRow(TOTAL_LABELS.TOTAL_MARGIN, totalMargin)
+                sumRow(
+                  TOTAL_LABELS.TOTAL_MARGIN,
+                  filteredTotals(totalMargin)
+                )
               );
             }
 
@@ -364,7 +395,10 @@
         addMonths(finalT4, totalMargin);   // + Total Margin
 
         tbody.appendChild(
-          sumRow(TOTAL_LABELS.T4, finalT4)
+          sumRow(
+            TOTAL_LABELS.T4,
+            filteredTotals(finalT4)
+          )
         );
       }
 
@@ -377,6 +411,8 @@
       container.appendChild(h);
       container.appendChild(table);
     });
+
+    applyMonthVisibility();
 }
         
 
@@ -442,12 +478,31 @@
       }
 
       function showTrimester(t) {
-        hideAllMonths();
-        trimesters[t].forEach(showMonth);
+        activeMonths = trimesters[t];
+        recalcTotals();
       }
 
       function showAllMonths() {
-        document.querySelectorAll("[data-month]").forEach(td => td.style.display = "");
+        activeMonths = [1,2,3,4,5,6,7,8,9,10,11,12];
+        recalcTotals();
+      }
+
+      function recalcTotals() {
+        loadMonthlyProfit();
+      }
+
+      function applyMonthVisibility() {
+        // Hide all months first
+        document.querySelectorAll("[data-month]").forEach(td => {
+          td.style.display = "none";
+        });
+
+        // Show only active months
+        activeMonths.forEach(m => {
+          document
+            .querySelectorAll(`[data-month="${m}"]`)
+            .forEach(td => td.style.display = "");
+        });
       }
 
       function toggleCategories(topicRow) {
