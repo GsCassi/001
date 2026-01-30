@@ -25,7 +25,8 @@
 
       <button type="submit">Enviar</button>
     </form>
-
+    <br><br>
+<hr>
     <br><br>
 
     <label for="accountSelect">Escolha a conta:</label>
@@ -41,6 +42,13 @@
 
     <br><br>
 
+    
+
+    <br><br>
+
+    <div id="yearlyOverview"></div>
+    <br><br>
+
     <div class="filters">
       <button class="btn active" onclick="showAllMonths()">Ano</button>
       <button class="btn" onclick="showTrimester(1)">T1</button>
@@ -48,14 +56,11 @@
       <button class="btn" onclick="showTrimester(3)">T3</button>
       <button class="btn" onclick="showTrimester(4)">T4</button>
     </div>
-
-    <br><br>
-
-    <div id="yearlyOverview"></div>
-    <br><br>
+    <br>
     <div id="yearsContainer"></div>
 
     <script>
+
       const TOTAL_LABELS = {
         T1: "RECEITA LÍQUIDA",
         T3: "TOTAL CUSTOS DIRETOS",
@@ -98,6 +103,7 @@
 
         // 🔥 FULL RESET (this is the missing piece)
         accountSelect.innerHTML = "";
+        accountSelect.value = "";
 
         // Default option
         const defaultOpt = document.createElement("option");
@@ -122,8 +128,8 @@
 
         data.forEach(o => {
           const opt = document.createElement("option");
-          opt.value = o.gerente;
-          opt.textContent = o.gerente;
+          opt.value = o.nome;
+          opt.textContent = o.nome;
           sel.appendChild(opt);
         });
       }
@@ -536,6 +542,7 @@
 
       document.getElementById("ownerSelect")
         .addEventListener("change", () => {
+          document.getElementById("accountSelect").value = "";
           loadAccounts();
           loadMonthlyProfit();
           loadYearlyOverview();

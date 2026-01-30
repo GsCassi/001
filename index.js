@@ -153,19 +153,21 @@ app.get("/api/accounts", async (req, res) => {
     if (!owner) {
       // ✅ Todos os gerentes → all accounts
       query = `
-        SELECT DISTINCT ccusto
-        FROM gerentes
+        SELECT ccusto
+        FROM centro_de_custo
         WHERE ccusto IS NOT NULL
         ORDER BY ccusto;
       `;
     } else {
       // ✅ Filter by gerente
       query = `
-        SELECT DISTINCT ccusto
-        FROM gerentes
-        WHERE gerente = $1
-          AND ccusto IS NOT NULL
-        ORDER BY ccusto;
+        SELECT DISTINCT c.ccusto
+        FROM gerentes_ccustos gc
+        JOIN usuarios u ON u.id = gc.usuario_id
+        JOIN centro_de_custo c ON c.id = gc.ccusto_id
+        WHERE u.nome = $1
+          AND c.ccusto IS NOT NULL
+        ORDER BY c.ccusto;
       `;
       params.push(owner);
     }
@@ -184,8 +186,15 @@ app.get("/api/accounts", async (req, res) => {
 
 app.get("/api/yearly-overview", async (req, res) => {
   try {
-    const account = req.query.account || null;
-    const owner   = req.query.owner   || null;
+    const owner =
+      req.query.owner && req.query.owner.trim() !== ""
+        ? req.query.owner
+        : null;
+
+    const account =
+      req.query.account && req.query.account.trim() !== ""
+        ? req.query.account
+        : null;
 
     const query = `
       WITH tx AS (
@@ -203,9 +212,11 @@ app.get("/api/yearly-overview", async (req, res) => {
           AND (
             $2::text IS NULL OR EXISTS (
               SELECT 1
-              FROM gerentes g
-              WHERE g.ccusto = t.ccusto
-                AND g.gerente = $2
+              FROM gerentes_ccustos gc
+              JOIN usuarios u        ON u.id = gc.usuario_id
+              JOIN centro_de_custo c ON c.id = gc.ccusto_id
+              WHERE c.ccusto = t.ccusto
+                AND u.nome   = $2
             )
           )
         GROUP BY ano, c.titulo, c.topico, c.ordem_titulo
@@ -248,9 +259,17 @@ app.get("/api/yearly-overview", async (req, res) => {
 
 //By year
 app.get("/api/monthly-profit", async (req, res) => {
+console.log("QUERY PARAMS:", req.query);
   try {
-    const account = req.query.account || null;
-    const owner   = req.query.owner   || null;
+    const owner =
+      req.query.owner && req.query.owner.trim() !== ""
+        ? req.query.owner
+        : null;
+
+    const account =
+      req.query.account && req.query.account.trim() !== ""
+        ? req.query.account
+        : null;
 
     const query = `
       WITH tx AS (
@@ -266,9 +285,11 @@ app.get("/api/monthly-profit", async (req, res) => {
     AND (
       $2::text IS NULL OR EXISTS (
         SELECT 1
-        FROM gerentes g
-        WHERE g.ccusto = t.ccusto
-          AND g.gerente = $2
+        FROM gerentes_ccustos gc
+        JOIN usuarios u        ON u.id = gc.usuario_id
+        JOIN centro_de_custo c ON c.id = gc.ccusto_id
+        WHERE c.ccusto = t.ccusto
+          AND u.nome   = $2
       )
     )
   GROUP BY t.codigo, t.ccusto, ano, mes
@@ -401,11 +422,13 @@ app.get("/api/categories-profit", async (req, res) => {
 app.get("/api/owners", async (req, res) => {
   try {
     const { rows } = await pool.query(`
-      SELECT DISTINCT gerente
-      FROM gerentes
-      ORDER BY gerente
+      SELECT id, nome
+      FROM usuarios
+      WHERE funcao = 'gerente'
+      ORDER BY nome;
     `);
 
+     console.log("Owners returned:", rows); // 👈 ADD THIS
     res.json(rows);
   } catch (err) {
     console.error(err);
