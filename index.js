@@ -259,7 +259,7 @@ app.get("/api/yearly-overview", async (req, res) => {
 
 //By year
 app.get("/api/monthly-profit", async (req, res) => {
-console.log("QUERY PARAMS:", req.query);
+//console.log("QUERY PARAMS:", req.query);
   try {
     const owner =
       req.query.owner && req.query.owner.trim() !== ""
@@ -428,7 +428,7 @@ app.get("/api/owners", async (req, res) => {
       ORDER BY nome;
     `);
 
-     console.log("Owners returned:", rows); // 👈 ADD THIS
+     //console.log("Owners returned:", rows);
     res.json(rows);
   } catch (err) {
     console.error(err);

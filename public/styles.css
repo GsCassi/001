@@ -17,7 +17,112 @@
   margin-bottom: 20px;
 }
 
+/* ---------- Upload ---------- */
+
+/* 1. Ensure the card allows the form to use full width */
+.upload-card {
+  display: flex;
+  padding: 20px 24px;
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+  margin-bottom: 20px;
+}
+
+/* 2. The Form: Force it to fill the card and space items out */
+#uploadForm.horizontal-form {
+  display: flex !important;
+  flex-direction: row !important;
+  justify-content: space-between !important; /* This creates the horizontal fill */
+  align-items: flex-end !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  gap: 15px;
+  flex-wrap: nowrap; /* Keeps them on one line unless the screen is very small */
+}
+
+/* 3. The Items: Let them grow to fill available space evenly */
+#uploadForm .filter-item {
+  display: flex;
+  flex-direction: column;
+  flex: 1; /* Each item takes an equal portion of the row */
+  max-width: 350px; /* Optional: prevents them from getting TOO wide on huge screens */
+  gap: 8px;
+}
+
+/* 4. Height Consistency */
+.month-input, 
+.file-box, 
+.btn-upload {
+  height: 42px !important;
+  box-sizing: border-box;
+}
+
+/* 5. Clean up File Box & Button */
+.file-box {
+  background-color: #f1f5f9;
+  border-radius: 8px;
+  border: 1px dashed #cbd5e1;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+}
+
+.btn-upload {
+  flex: 0 0 auto; /* Button stays at its own size, doesn't stretch like the inputs */
+  background-color: #34a853;
+  color: white;
+  padding: 0 40px;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  align-self: flex-end; /* Ensures it sits on the baseline with the inputs */
+}
+
+/* 6. REMOVE THOSE HIDDEN MARGINS */
+#uploadForm label {
+  margin: 0 !important; /* Remove the 1rem top margin from your current file */
+  font-size: 14px;
+}
+
 /* ---------- Select (Dropdown) ---------- */
+
+.filter-group {
+  display: flex;
+  flex-direction: row; /* Keep them side-by-side */
+  justify-content: flex-start; /* Align everything to the left */
+  flex-wrap: wrap; 
+  gap: 15px; /* Small, consistent gap between the filters */
+  align-items: flex-end; /* Keeps labels on top and boxes aligned at bottom */
+  margin-bottom: 20px;
+  margin-bottom: 20px;
+}
+
+/* Individual item container (Label + Select) */
+.filter-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 0 0 auto; /* CRITICAL: This prevents them from stretching to fill the width */
+  min-width: 250px; /* Gives them a nice consistent base width */
+}
+
+/* Adjust margins to prevent labels from pushing items out of alignment */
+.filter-item label {
+  margin-top: 0; /* Remove top margin if any */
+  margin-bottom: 5px;
+  display: block;
+}
+
+/* Ensure the select boxes have a consistent width */
+.filter-item .select {
+  width: 100%; /* Fills the 250px of the parent */
+  max-width: 300px;
+  height: 42px; /* Matching the height of your upload inputs for consistency */
+}
+
 
 .select {
   padding: 10px 14px;
@@ -50,21 +155,25 @@
 .btn {
   padding: 10px 16px;
   border-radius: 8px;
-  border: 1px solid #be192f;
+  border: 1px solid #2e40e2;
   background-color: white;
-  color: #be192f;
+  color: #2e40e2;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
+.btn:focus {
+  outline: none;
+}
+
 .btn:hover {
-  background-color: #be192f;
+  background-color: #2e40e2;
   color: white;
 }
 
 .btn.active {
-  background-color: #be192f;
+  background-color: #2e40e2;
   color: white;
 }
 
@@ -79,9 +188,9 @@ body {
 }
 
 tbody tr.topic-row {
-    font-weight: bold;
-    color: #000000;
-    background-color: #ffc0c0d0;
+    font-weight: 400;
+    color: #475569;
+    background-color: transparent !important; /* Overriding your pink/grey backgrounds */
 }
 
 tbody tr.category-row td:first-child {
@@ -99,27 +208,37 @@ h1 {
 table {
     width: 100%;
     border-collapse: collapse;
-    margin-top: 20px;
+    margin-top: 10px;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; /* Modern font stack */
 }
 
 /* Table header styling */
 thead {
-    background-color: #be192f;
-    color: white;
+    background-color: rgba(221, 221, 221, 0.877);
+    color: black;
 }
 
 th {
     padding: 12px;
     text-align: left;
-    font-weight: bold;
+    font-size: 12px;
+    text-transform: uppercase;
+    color: #64748b; /* Muted gray for headers */
+    border-bottom: 1px solid #e2e8f0;
+    letter-spacing: 0.05em;
 }
 
 /* Table data cell styling */
 td {
-    padding: 12px;
-    border-bottom: 1px solid #ddd;
+    padding: 14px 12px;
+    border-bottom: 1px solid #f1f5f9; /* Very light border */
+    font-size: 14px;
+    color: #334155;
 }
 
+td:not(:first-child), th:not(:first-child) {
+    text-align: right;
+}
 
 /* First column styling */
 td:first-child {
@@ -140,8 +259,14 @@ td:first-child {
   display: inline-block;
   width: 16px;
   margin-right: 6px;
-  color: #be192f;
+  color: #334155;
   font-weight: bold;
+}
+
+/* Category Rows (The nested items) */
+.category-row td {
+    color: #64748b;
+    font-weight: 400;
 }
 
 
@@ -154,21 +279,46 @@ td:first-child {
 
 .title-row td {
   font-weight: 700;
-  background-color: #f1f5f9;
+  background-color: rgb(245, 245, 245); /* Remove the grey background from before */
+  color: #0f172a;
   text-transform: uppercase;
-  border-top: 2px solid #cbd5e1;
+  border-top: none; 
+  padding-top: 24px; /* Space before a new section */
 }
 
 .sum-row td {
-  font-weight: bold;
-  background-color: #e2e8f0;
-  border-top: 2px dashed #94a3b8;
+  background-color: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  border-bottom: 2px solid #e2e8f0;
+  color: #0f172a;
+}
+
+/* Ensure each item doesn't force a new line */
+#uploadForm .filter-item {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto; /* Allows them to grow slightly to fill space */
+  max-width: 350px; /* Prevents them from becoming too wide */
+  gap: 8px;
+  margin: 0;
 }
 
 
 #uploadForm {
   max-width: 400px;
 }
+
+/* Force side-by-side layout and alignment */
+#uploadForm.horizontal-form {
+  display: flex !important; /* Force flexbox over any other rules */
+  flex-direction: row;
+  flex-wrap: wrap; /* Allows wrapping on smaller screens */
+  align-items: flex-end; /* Keeps labels on top and inputs aligned at the bottom */
+  justify-content: space-between;
+  gap: 20px;
+  max-width: 100%; /* Ensure it spans the card width */
+}
+
 
 #uploadForm label {
   display: block;
@@ -194,4 +344,25 @@ td:first-child {
 
 #uploadForm button:hover {
   background: #45a049;
+}
+
+.overview-section, #yearsContainer, .filter-group, .upload-card {
+  padding: 16px 24px;
+  
+  /* Background & Border */
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0; /* Very light grey border */
+  border-radius: 8px; /* Smooth rounded corners */
+  
+  /* Shadow for Depth */
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+  
+  /* Typography */
+  font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  color: #2c3e50; /* Dark slate color for the text */
+  font-weight: 500;
+  
+  /* Interaction */
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
 }

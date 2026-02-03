@@ -12,49 +12,68 @@
     <h1>Relatório Financeiro</h1>
 
     <br><br>
+    
+    <div class="upload-card">
+      <form id="uploadForm" class="horizontal-form">
+        
+        <div class="filter-item">
+          <label>Mês de referência</label>
+          <input type="month" name="month" required class="select month-input" />
+        </div>
 
-    <form id="uploadForm">
-      <label>Mês de referência</label>
-      <input type="month" name="month" required />
+        <div class="filter-item">
+          <label>Arquivo XLS (1)</label>
+          <div class="file-box">
+            <input type="file" name="files" accept=".xls,.xlsx" />
+          </div>
+        </div>
 
-      <label>Arquivo XLS (1)</label>
-      <input type="file" name="files" accept=".xls,.xlsx" />
+        <div class="filter-item">
+          <label>Arquivo XLS (2)</label>
+          <div class="file-box">
+            <input type="file" name="files" accept=".xls,.xlsx" />
+          </div>
+        </div>
 
-      <label>Arquivo XLS (2)</label>
-      <input type="file" name="files" accept=".xls,.xlsx" />
+        <button type="submit" class="btn-upload">Enviar</button>
+        
+      </form>
+    </div>
 
-      <button type="submit">Enviar</button>
-    </form>
+
     <br><br>
 <hr>
     <br><br>
+    <div class="filter-group">
+      
 
-    <label for="accountSelect">Escolha a conta:</label>
-    <select id="accountSelect" class="select">
-      <option value="">Todas as contas</option>
-    </select>
+      <div class="filter-item">
+        <label for="ownerSelect">Escolha o gerente:</label>
+        <select id="ownerSelect" class="select">
+          <option value="">Todos os gerentes</option>
+        </select>
+      </div>
 
-    <br><br>
-    <label for="ownerSelect">Escolha o gerente:</label>
-    <select id="ownerSelect" class="select">
-      <option value="">Todos os gerentes</option>
-    </select>
+      <div class="filter-item">
+        <label for="accountSelect">Escolha a conta:</label>
+        <select id="accountSelect" class="select">
+          <option value="">Todas as contas</option>
+        </select>
+      </div>
+    </div>
 
-    <br><br>
-
-    
-
-    <br><br>
-
-    <div id="yearlyOverview"></div>
+    <div class="overview-section">
+      <h2 id="toggleYearlyOverview" class="year">▶ Yearly Overview</h2>
+      <div id="yearlyOverview" style="display: none;"></div>
+    </div>
     <br><br>
 
     <div class="filters">
-      <button class="btn active" onclick="showAllMonths()">Ano</button>
-      <button class="btn" onclick="showTrimester(1)">T1</button>
-      <button class="btn" onclick="showTrimester(2)">T2</button>
-      <button class="btn" onclick="showTrimester(3)">T3</button>
-      <button class="btn" onclick="showTrimester(4)">T4</button>
+      <button class="btn active" onclick="showAllMonths(); updateActiveButton(this)">Ano</button>
+      <button class="btn" onclick="showTrimester(1); updateActiveButton(this)">T1</button>
+      <button class="btn" onclick="showTrimester(2); updateActiveButton(this)">T2</button>
+      <button class="btn" onclick="showTrimester(3); updateActiveButton(this)">T3</button>
+      <button class="btn" onclick="showTrimester(4); updateActiveButton(this)">T4</button>
     </div>
     <br>
     <div id="yearsContainer"></div>
@@ -172,10 +191,11 @@
 
       function renderYearlyOverview({ years, data }) {
         const container = document.getElementById("yearlyOverview");
+        const toggleH2 = document.getElementById("toggleYearlyOverview");
+        
         container.innerHTML = "";
 
         const table = document.createElement("table");
-
         table.innerHTML = `
           <thead>
             <tr>
@@ -188,26 +208,18 @@
         `;
 
         const tbody = table.querySelector("tbody");
-
         let lastTitulo = null;
 
         Object.entries(data).forEach(([topic, values]) => {
-          console.log(topic, values);
-
           if (values.titulo && values.titulo !== lastTitulo) {
             const trTitle = document.createElement("tr");
             trTitle.className = "title-row";
-            trTitle.innerHTML = `
-                  <td colspan="${years.length + 2}">
-                    ${values.titulo}
-                  </td>
-                `;
+            trTitle.innerHTML = `<td colspan="${years.length + 2}">${values.titulo}</td>`;
             tbody.appendChild(trTitle);
             lastTitulo = values.titulo;
           }
 
           let rowTotal = 0;
-
           const yearCells = years.map(y => {
             const v = values[y] || 0;
             rowTotal += v;
@@ -216,17 +228,22 @@
 
           const tr = document.createElement("tr");
           tr.className = "topic-row";
-
           tr.innerHTML = `
             <td>${topic}</td>
             ${yearCells.join("")}
             <td><strong>${numberFormatter.format(rowTotal)}</strong></td>
           `;
-
           tbody.appendChild(tr);
         });
 
         container.appendChild(table);
+
+        // Add the click event for toggling
+        toggleH2.onclick = () => {
+          const isHidden = container.style.display === "none";
+          container.style.display = isHidden ? "block" : "none";
+          toggleH2.textContent = (isHidden ? "▼ " : "▶ ") + "Yearly Overview";
+        };
       }
 
       function filteredTotals(totals) {
@@ -459,6 +476,18 @@
       }
 
       /* ---------- FILTERS ---------- */
+
+
+      function updateActiveButton(clickedButton) {
+        // Find all buttons within the .filters div
+        const buttons = document.querySelectorAll('.filters .btn');
+        
+        // Remove the 'active' class from every button
+        buttons.forEach(btn => btn.classList.remove('active'));
+        
+        // Add the 'active' class to the specific button that was clicked
+        clickedButton.classList.add('active');
+      }
 
       //Submit
       document.getElementById("uploadForm").addEventListener("submit", async (e) => {
