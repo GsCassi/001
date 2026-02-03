@@ -5,7 +5,7 @@
   max-width: 2000px;
   margin: auto;
   background: white;
-  padding: 30px 40px;
+  padding: 15px 40px 30px 40px;
   border-radius: 12px;
   box-shadow: 0 10px 30px rgba(0,0,0,0.08);
 }
@@ -17,7 +17,78 @@
   margin-bottom: 20px;
 }
 
+/* ---------- Header -----------*/
+
+
+.dashboard-header {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin: -15px -40px 30px -40px;
+
+  border-bottom: 1px solid #e2e8f0; 
+  padding-bottom: 10px; 
+  
+    /* Ignore the page's padding */
+  margin-left: -40px;
+  margin-right: -40px;
+  padding-left: 24px;
+  padding-right: 24px;
+
+}
+
+/* The Blue Icon Box */
+.header-icon {
+  background-color: #3f51b5; /* Professional Blue */
+  color: white;
+  width: 50px;
+  height: 50px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 6px rgba(63, 81, 181, 0.2);
+}
+
+.header-icon svg {
+  width: 28px;
+  height: 28px;
+}
+
+/* Text Styling */
+.header-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.main-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0;
+  padding: 0;
+  line-height: 1.2;
+}
+
+.sub-title {
+  font-size: 14px;
+  color: #94a3b8; /* Muted gray */
+  margin: 2px 0 0 0;
+  font-weight: 400;
+}
+
+/* Adjust the old container padding if needed */
+.Container {
+  padding-top: 40px;
+}
+
+
+
+
 /* ---------- Upload ---------- */
+
+
+
 
 /* 1. Ensure the card allows the form to use full width */
 .upload-card {
