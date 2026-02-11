@@ -1,4 +1,5 @@
 const express = require("express");
+const session = require("express-session");
 //destructuring the pool property to create an object
 const { Pool } = require("pg");
 //used for providing the path to the public
@@ -9,6 +10,14 @@ const XLSX = require("xlsx");
 const upload = multer({ storage: multer.memoryStorage() });
 
 const app = express();
+
+app.use(express.json());
+
+app.use(session({
+  secret: "local_rbac_secret",
+  resave: false,
+  saveUninitialized: false
+}));
 
 // PostgreSQL connection
 const pool = new Pool({
@@ -49,8 +58,24 @@ function mapRow(xlsRow, baseDate) {
   };
 }
 
+function requireAuth(req, res, next) {
+  if (!req.session.user)
+    return res.status(401).json({ error: "Not authenticated" });
+  next();
+}
+
+function requireRole(...roles) {
+  return (req, res, next) => {
+    if (!roles.includes(req.session.user.role))
+      return res.status(403).json({ error: "Forbidden" });
+    next();
+  };
+}
+
 app.post(
   "/api/upload-transacoes",
+  requireAuth,
+  requireRole("admin"),
   upload.array("files", 2),
   async (req, res) => {
     const { month } = req.body;
@@ -143,8 +168,42 @@ app.post(
 });
 */
 
+app.post("/api/login", async (req, res) => {
+  const { login, senha } = req.body;
+
+  const { rows } = await pool.query(
+    "SELECT id, login, senha, nome, funcao FROM usuarios WHERE login = $1",
+    [login]
+  );
+
+  if (rows.length === 0)
+    return res.status(401).json({ error: "Usuário não encontrado" });
+
+  const user = rows[0];
+
+  if (user.senha !== senha)
+    return res.status(401).json({ error: "Senha inválida" });
+
+  req.session.user = {
+    id: user.id,
+    login: user.login,
+    nome: user.nome,
+    role: user.funcao
+  };
+
+  res.json({ ok: true });
+});
+
+app.get("/api/me", (req, res) => {
+  res.json(req.session.user || null);
+});
+
 app.get("/api/accounts", async (req, res) => {
-  const { owner } = req.query;
+  let owner = req.query.owner;
+
+  if (req.session.user?.role === "gerente") {
+    owner = req.session.user.nome;
+  }
 
   try {
     let query;
@@ -186,10 +245,14 @@ app.get("/api/accounts", async (req, res) => {
 
 app.get("/api/yearly-overview", async (req, res) => {
   try {
-    const owner =
+    let owner =
       req.query.owner && req.query.owner.trim() !== ""
         ? req.query.owner
         : null;
+
+    if (req.session.user?.role === "gerente") {
+      owner = req.session.user.nome;
+    }
 
     const account =
       req.query.account && req.query.account.trim() !== ""
@@ -261,10 +324,14 @@ app.get("/api/yearly-overview", async (req, res) => {
 app.get("/api/monthly-profit", async (req, res) => {
 //console.log("QUERY PARAMS:", req.query);
   try {
-    const owner =
+    let owner =
       req.query.owner && req.query.owner.trim() !== ""
         ? req.query.owner
         : null;
+
+    if (req.session.user?.role === "gerente") {
+      owner = req.session.user.nome;
+    }
 
     const account =
       req.query.account && req.query.account.trim() !== ""
@@ -419,8 +486,17 @@ app.get("/api/categories-profit", async (req, res) => {
 });
 */
 
-app.get("/api/owners", async (req, res) => {
+app.get("/api/owners", requireAuth, async (req, res) => {
   try {
+
+    // 🔒 Manager can only see himself
+    if (req.session.user.role === "gerente") {
+      return res.json([
+        { nome: req.session.user.nome }
+      ]);
+    }
+
+    // Admin & Diretor see all gerentes
     const { rows } = await pool.query(`
       SELECT id, nome
       FROM usuarios
@@ -428,10 +504,10 @@ app.get("/api/owners", async (req, res) => {
       ORDER BY nome;
     `);
 
-     //console.log("Owners returned:", rows);
     res.json(rows);
+
   } catch (err) {
-    console.error(err);
+    console.error("Error fetching owners:", err);
     res.status(500).send("Error fetching owners");
   }
 });

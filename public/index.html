@@ -91,6 +91,19 @@
 
     <script>
 
+      async function checkAuth() {
+        const r = await fetch("/api/me");
+        const u = await r.json();
+        if (!u) location.href = "/login.html";
+        return u;
+      }
+
+      function initRoleUI(user) {
+        if (user.role !== "admin") {
+          document.querySelector(".upload-card").style.display = "none";
+        }
+      }
+
       const TOTAL_LABELS = {
         T1: "RECEITA LÍQUIDA",
         T3: "TOTAL CUSTOS DIRETOS",
@@ -587,10 +600,15 @@
           loadMonthlyProfit();
           loadYearlyOverview();
         });
-      loadOwners();
-      loadAccounts();
-      loadYearlyOverview();
-      loadMonthlyProfit();
+
+      (async () => {
+        const me = await checkAuth();
+        initRoleUI(me);
+        loadOwners();
+        loadAccounts();
+        loadYearlyOverview();
+        loadMonthlyProfit();
+      })();
 
     </script>
   </div>

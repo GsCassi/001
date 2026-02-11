@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<body>
+
+<h2>Login</h2>
+
+<form id="f">
+<input id="login" placeholder="Login" required>
+<input id="senha" type="password" placeholder="Senha" required>
+<button>Entrar</button>
+</form>
+
+<script>
+f.onsubmit = async e => {
+  e.preventDefault();
+
+  const r = await fetch("/api/login", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({
+      login: login.value,
+      senha: senha.value
+    })
+  });
+
+  if (r.ok) location.href = "/";
+  else alert("Erro no login");
+};
+</script>
+
+</body>
+</html>
