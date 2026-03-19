@@ -8,6 +8,7 @@
 </head>
 
 <body>
+  
   <div class="Container">
     <div class="dashboard-header">
       <div class="header-icon">
@@ -23,9 +24,10 @@
         <h1 class="main-title">Sistema Financeiro</h1>
         <p class="sub-title">Painel Gerencial</p>
       </div>
+      <button onclick="logout()" class="btn" style="margin-left:auto">Sair</button>
     </div>
+    
 
-    <br><br>
     
     <div class="upload-card">
       <form id="uploadForm" class="horizontal-form">
@@ -54,7 +56,6 @@
       </form>
     </div>
 
-    <br><br>
     <div class="filter-group">
       
 
@@ -74,7 +75,7 @@
     </div>
 
     <div class="overview-section">
-      <h2 id="toggleYearlyOverview" class="year">▶ Yearly Overview</h2>
+      <h2 id="toggleYearlyOverview" class="year">▶ Comparação Anual</h2>
       <div id="yearlyOverview" style="display: none;"></div>
     </div>
     <br><br>
@@ -125,11 +126,21 @@
 
 
       let activeMonths = [1,2,3,4,5,6,7,8,9,10,11,12];
+      let expandedYears = new Set(); // Add this line
 
       const trimesters = {
         1: [1, 2, 3], 2: [4, 5, 6], 3: [7, 8, 9], 4: [10, 11, 12]
       };
 
+      // Calculates the sum of only the currently active months
+      function getActiveTotal(totalsObj) {
+        let sum = 0;
+        activeMonths.forEach(m => {
+          const monthKey = months[m - 1][0]; // Gets 'jan', 'fev', etc.
+          sum += Number(totalsObj[monthKey] || 0);
+        });
+        return sum;
+      }
       /* ---------- LOAD DATA ---------- */
 
       async function loadAccounts() {
@@ -266,7 +277,7 @@
         toggleH2.onclick = () => {
           const isHidden = container.style.display === "none";
           container.style.display = isHidden ? "block" : "none";
-          toggleH2.textContent = (isHidden ? "▼ " : "▶ ") + "Yearly Overview";
+          toggleH2.textContent = (isHidden ? "▼ " : "▶ ") + "Comparação Anual";
         };
       }
 
@@ -299,8 +310,11 @@
         const tr = document.createElement("tr");
         tr.className = "sum-row";
 
+        const showTotalCol = activeMonths.length < 12;
+        const totalValue = getActiveTotal(totals);
+
         tr.innerHTML = `
-          <td>${label}</td>
+          <td><strong>${label}</strong></td>
           ${months.map((m, i) => {
             const monthIndex = i + 1;
             const isVisible = activeMonths.includes(monthIndex);
@@ -312,6 +326,7 @@
               </td>
             `;
           }).join("")}
+          ${showTotalCol ? `<td class="trimester-total" style="text-align: right;"><strong>${numberFormatter.format(totalValue)}</strong></td>` : ''}
         `;
 
         return tr;
@@ -331,13 +346,19 @@
       h.className = "year";
 
       const table = document.createElement("table");
-      table.style.display = "none";
+      const isExpanded = expandedYears.has(year);
+      table.style.display = isExpanded ? "table" : "none";
+
+      h.textContent = (isExpanded ? "▼ " : "▶ ") + year;
+
+      const showTotalCol = activeMonths.length < 12;
 
       table.innerHTML = `
         <thead>
           <tr>
             <th>Categoria</th>
             ${months.map((m, i) => `<th data-month="${i + 1}">${m[1]}</th>`).join("")}
+            ${showTotalCol ? `<th class="trimester-total" style="text-align: right;">Total Trimestre</th>` : ''}
           </tr>
         </thead>
         <tbody></tbody>
@@ -394,7 +415,7 @@
               tbody.appendChild(
                 sumRow(
                   TOTAL_LABELS.T3,
-                  filteredTotals(titleSum)
+                  filteredTotals(totalT3)
                 )
               );
 
@@ -453,6 +474,13 @@
       h.onclick = () => {
         table.style.display = table.style.display === "none" ? "table" : "none";
         h.textContent = (table.style.display === "none" ? "▶ " : "▼ ") + year;
+
+        if (table.style.display === "table") {
+          expandedYears.add(year);
+        } else {
+          expandedYears.delete(year);
+        }
+
       };
 
       container.appendChild(h);
@@ -468,8 +496,13 @@
       function titleRow(text) {
         const tr = document.createElement("tr");
         tr.className = "title-row";
+        
+        // If we are showing the total column, the colspan needs to account for the extra column
+        const showTotalCol = activeMonths.length < 12;
+        const colSpanSize = months.length + 1 + (showTotalCol ? 1 : 0);
+
         tr.innerHTML = `
-        <td colspan="${months.length + 1}">
+        <td colspan="${colSpanSize}">
           ${text}
         </td>
       `;
@@ -480,11 +513,16 @@
       function topicRow(name, totals) {
         const tr = document.createElement("tr");
         tr.className = "topic-row collapsed";
+        
+        const showTotalCol = activeMonths.length < 12;
+        const totalValue = getActiveTotal(totals);
+
         tr.innerHTML = `<td>
           <span class="topic-toggle">▶</span>
           ${name}
           </td>` +
-          months.map((m, i) => `<td data-month="${i + 1}">${numberFormatter.format(totals[m[0]])}</td>`).join("");
+          months.map((m, i) => `<td data-month="${i + 1}">${numberFormatter.format(totals[m[0]])}</td>`).join("") +
+          (showTotalCol ? `<td class="trimester-total" style="text-align: right;"><strong>${numberFormatter.format(totalValue)}</strong></td>` : '');
 
         tr.addEventListener("click", () => toggleCategories(tr));
         return tr;
@@ -494,8 +532,13 @@
         const tr = document.createElement("tr");
         tr.className = "category-row";
 
+        const showTotalCol = activeMonths.length < 12;
+        const totalValue = getActiveTotal(r); // 'r' holds the db row with properties like jan, fev
+
         tr.innerHTML = `<td>${r.category_name}</td>` +
-          months.map((m, i) => `<td data-month="${i + 1}">${numberFormatter.format(r[m[0]])}</td>`).join("");
+          months.map((m, i) => `<td data-month="${i + 1}">${numberFormatter.format(r[m[0]])}</td>`).join("") +
+          (showTotalCol ? `<td class="trimester-total" style="text-align: right;">${numberFormatter.format(totalValue)}</td>` : '');
+          
         return tr;
       }
 
@@ -583,6 +626,12 @@
         const icon = topicRow.querySelector(".topic-toggle");
         //if we just collapsed, change the arrow
         if (icon) icon.textContent = isCollapsed ? "▶" : "▼";
+      }
+      
+      /* ---------- LOGOUT ---------- */
+      async function logout() {
+        await fetch("/api/logout", { method: "POST" });
+        window.location.href = "/login.html";
       }
 
       /* ---------- INIT ---------- */

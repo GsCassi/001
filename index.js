@@ -1,5 +1,6 @@
 const express = require("express");
 const session = require("express-session");
+const pgSession = require("connect-pg-simple")(session);
 //destructuring the pool property to create an object
 const { Pool } = require("pg");
 //used for providing the path to the public
@@ -11,22 +12,36 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 const app = express();
 
+// PostgreSQL connection
+const pool = new Pool({
+  user: "sige_dbuser",       // your pg username
+  host: "postgresql-server-01.marteengenharia.com.br",
+  database: "sige",  // database you created
+  password: "Adm5.TI@$sige",
+  port: 5432
+});
+
+app.set('trust proxy', 1);
+
 app.use(express.json());
 
 app.use(session({
+  store: new pgSession({
+    pool : pool,                // Uses your existing Pool connection
+    tableName : 'user_sessions', // The table we created in Step 1
+    pruneSessionInterval: 60 * 15 // Cleans up expired sessions every 15 minutes
+  }),
   secret: "local_rbac_secret",
   resave: false,
-  saveUninitialized: false
+  saveUninitialized: false,
+  cookie: { 
+    maxAge: 1 * 24 * 60 * 60 * 1000, // User stays logged in for 24 hours
+    secure: false,                   // Keep false unless you have HTTPS/SSL
+    httpOnly: true,                  // Security: prevents JS from reading the cookie
+    sameSite: 'lax'                  // Helps modern browsers maintain the session
+  }
 }));
 
-// PostgreSQL connection
-const pool = new Pool({
-  user: "postgres",       // your pg username
-  host: "localhost",
-  database: "relatorio001",  // database you created
-  password: "root",
-  port: 5432
-});
 
 // Serve static files (HTML)
 app.use(express.static(path.join(__dirname, "public")));
@@ -194,11 +209,23 @@ app.post("/api/login", async (req, res) => {
   res.json({ ok: true });
 });
 
+app.post("/api/logout", (req, res) => {
+  req.session.destroy(err => {
+    if (err) {
+      console.error("Logout error:", err);
+      return res.status(500).send("Erro ao sair");
+    }
+
+    res.clearCookie("connect.sid"); // removes session cookie
+    res.sendStatus(200);
+  });
+});
+
 app.get("/api/me", (req, res) => {
   res.json(req.session.user || null);
 });
 
-app.get("/api/accounts", async (req, res) => {
+app.get("/api/accounts", requireAuth, async (req, res) => {
   let owner = req.query.owner;
 
   if (req.session.user?.role === "gerente") {
@@ -243,7 +270,7 @@ app.get("/api/accounts", async (req, res) => {
 
 //Overview
 
-app.get("/api/yearly-overview", async (req, res) => {
+app.get("/api/yearly-overview", requireAuth, async (req, res) => {
   try {
     let owner =
       req.query.owner && req.query.owner.trim() !== ""
@@ -266,7 +293,8 @@ app.get("/api/yearly-overview", async (req, res) => {
           SUM(t.debito + t.credito) AS total,
           c.titulo,
           c.topico,
-          c.ordem_titulo
+          c.ordem_titulo,
+          c.ordem_topico
         FROM transacoes t
         JOIN codigos co ON co.codigo = t.codigo
         JOIN categorias c ON c.id = co.id_da_categoria
@@ -282,7 +310,7 @@ app.get("/api/yearly-overview", async (req, res) => {
                 AND u.nome   = $2
             )
           )
-        GROUP BY ano, c.titulo, c.topico, c.ordem_titulo
+        GROUP BY ano, c.titulo, c.topico, c.ordem_titulo, c.ordem_topico
       )
       SELECT
         titulo,
@@ -291,7 +319,11 @@ app.get("/api/yearly-overview", async (req, res) => {
         total
       FROM tx
       WHERE ano IS NOT NULL
-      ORDER BY ordem_titulo, topico, ano;
+      ORDER BY 
+        ordem_titulo, 
+        ordem_topico, 
+        topico, 
+        ano;
     `;
 
     const { rows } = await pool.query(query, [account, owner]);
@@ -321,7 +353,7 @@ app.get("/api/yearly-overview", async (req, res) => {
 
 
 //By year
-app.get("/api/monthly-profit", async (req, res) => {
+app.get("/api/monthly-profit", requireAuth, async (req, res) => {
 //console.log("QUERY PARAMS:", req.query);
   try {
     let owner =
@@ -392,14 +424,16 @@ GROUP BY
     c.titulo,
     c.topico,
     c.nome_da_categoria,
-    c.id
+    c.id,
+    c.ordem_titulo,
+    c.ordem_topico
 
 ORDER BY
     tx.ano,
-    c.ordem_titulo,
-    c.titulo,
-    c.topico,
-    c.id;
+      c.ordem_titulo,
+      c.ordem_topico,
+      c.titulo,
+      c.topico;
     `;
 
     /*
@@ -514,12 +548,17 @@ app.get("/api/owners", requireAuth, async (req, res) => {
 
 //serve regardless of index.html
 app.get("/", (req, res) => {
+  if (!req.session.user)
+    return res.redirect("/login.html");
+  
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
 // Start server and listen for requests
-app.listen(3000, () => {
-  console.log("Server running at http://localhost:3000");
+const PORT = 3000;
+
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Server running on port ${PORT}`);
 });
 
 pool.query("SELECT NOW()", (err, result) => {
