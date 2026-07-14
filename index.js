@@ -1,6 +1,7 @@
 const express = require("express");
 const session = require("express-session");
 const pgSession = require("connect-pg-simple")(session);
+const mysql = require('mysql2/promise');
 //destructuring the pool property to create an object
 const { Pool } = require("pg");
 //used for providing the path to the public
@@ -9,6 +10,7 @@ const path = require("path");
 const multer = require("multer");
 const XLSX = require("xlsx");
 const upload = multer({ storage: multer.memoryStorage() });
+const MIN_DATE_FILTER = '2022-01-01 00:00:00';
 
 const app = express();
 
@@ -20,6 +22,19 @@ const pool = new Pool({
   password: "Adm5.TI@$sige",
   port: 5432
 });
+
+// NEW: MySQL connection pool
+const mysqlPool = mysql.createPool({
+  host: "mysql-server-01.marteengenharia.com.br", // Change to your MySQL host
+  user: "dba",      // Change to your MySQL user
+  password: "Adm5.TI@$dba", // Change to your MySQL password
+  database: "adminis", // Change to your MySQL database
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0
+});
+
+
 
 app.set('trust proxy', 1);
 
@@ -53,8 +68,31 @@ function parseXls(buffer) {
   return XLSX.utils.sheet_to_json(sheet, { defval: 0 });
 }
 
+function parseCurrency(value) {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    // Remove 'R$', spaces, and thousands separators (dots)
+    let cleaned = value.replace(/[R$\s\.]/g, '');
+    // Change the decimal comma to a decimal dot
+    cleaned = cleaned.replace(',', '.');
+    return Number(cleaned) || 0;
+  }
+  return 0;
+}
 
-
+// Helper to fetch allowed cost centers from MySQL using ONLY the login
+async function getAllowedCostCenters(login) {
+  const query = `
+    SELECT DISTINCT RIGHT(c.Ct_Centro_Custo, 6) AS ccusto
+    FROM adminis.contrato c
+    JOIN adminis.usuarios u ON c.id_usuario = u.id
+    WHERE u.U_Login = ?
+      AND c.Ct_Centro_Custo IS NOT NULL
+      AND c.Ct_Dt_Inicio >= '${MIN_DATE_FILTER}'
+  `;
+  const [rows] = await mysqlPool.execute(query, [login]);
+  return rows.map(r => r.ccusto);
+}
 //##change
 
 function mapRow(xlsRow, baseDate) {
@@ -91,9 +129,9 @@ app.post(
   "/api/upload-transacoes",
   requireAuth,
   requireRole("admin"),
-  upload.array("files", 2),
+  upload.array("files", 2), // Keep as 2 to support the "direto" upload which uses 2 files
   async (req, res) => {
-    const { month } = req.body;
+    const { month, uploadType } = req.body;
     const files = req.files;
 
     if (!month) {
@@ -104,69 +142,274 @@ app.post(
       return res.status(400).send("Nenhum arquivo enviado");
     }
 
-    // month = "2025-12"
     const [year, monthNum] = month.split("-");
     const baseDate = new Date(year, monthNum - 1, 1);
 
-    const client = await pool.connect();
+    // ==========================================
+    // BRANCH 1: Lançamento Direto (Database Insert)
+    // ==========================================
+    if (uploadType === "direto") {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
 
-    try {
-      await client.query("BEGIN");
+        // Delete ALL data for this month
+        await client.query(
+          `
+          DELETE FROM transacoes
+          WHERE EXTRACT(YEAR FROM mes) = $1
+            AND EXTRACT(MONTH FROM mes) = $2
+          `,
+          [year, monthNum]
+        );
 
-      // 🔥 Delete ALL data for this month
-      await client.query(
-        `
-        DELETE FROM transacoes
-        WHERE EXTRACT(YEAR FROM mes) = $1
-          AND EXTRACT(MONTH FROM mes) = $2
-        `,
-        [year, monthNum]
-      );
+        let inserted = 0;
 
-      let inserted = 0;
+        for (const file of files) {
+          const rows = parseXls(file.buffer);
 
-      for (const file of files) {
-        const rows = parseXls(file.buffer);
+          for (const xlsRow of rows) {
+            const row = mapRow(xlsRow, baseDate);
 
-        for (const xlsRow of rows) {
-          const row = mapRow(xlsRow, baseDate);
+            await client.query(
+              `
+              INSERT INTO transacoes
+                (codigo, descricao, ccusto, debito, credito, mes)
+              VALUES
+                ($1, $2, $3, $4, $5, $6)
+              `,
+              [
+                row.codigo,
+                row.descricao,
+                row.ccusto,
+                row.debito,
+                row.credito,
+                row.mes
+              ]
+            );
 
-          await client.query(
-            `
-            INSERT INTO transacoes
-              (codigo, descricao, ccusto, debito, credito, mes)
-            VALUES
-              ($1, $2, $3, $4, $5, $6)
-            `,
-            [
-              row.codigo,
-              row.descricao,
-              row.ccusto,
-              row.debito,
-              row.credito,
-              row.mes
-            ]
-          );
-
-          inserted++;
+            inserted++;
+          }
         }
+
+        await client.query("COMMIT");
+        return res.send(`Upload concluído. ${inserted} registros inseridos para ${month}`);
+      } catch (err) {
+        await client.query("ROLLBACK");
+        console.error(err);
+        return res.status(500).send("Erro ao processar upload");
+      } finally {
+        client.release();
       }
+    }
 
-      await client.query("COMMIT");
+    // ==========================================
+    // BRANCH 2: Gerar Rateio (The Apportionment Engine)
+    // ==========================================
+    else if (uploadType === "rateio") {
+      const pgClient = await pool.connect();
+      try {
 
-      res.send(
-        `Upload concluído. ${inserted} registros inseridos para ${month}`
-      );
-    } catch (err) {
-      await client.query("ROLLBACK");
-      console.error(err);
-      res.status(500).send("Erro ao processar upload");
-    } finally {
-      client.release();
+        // STEP 1: FETCH OH HEADCOUNT (PostgreSQL)
+
+        const ohRes = await pgClient.query(`
+          SELECT u.id, c.ccusto
+          FROM usuarios_oh u
+          JOIN centro_de_custo c ON u.id_centro_custo = c.id
+          WHERE u.ativo = true
+        `);
+        
+        const ohActiveUsers = [];
+        const ohDefaultCcusto = {}; 
+        
+        // FUTURE-PROOFING: Placeholder for when OH users start logging hours
+        const ohDistribution = {}; 
+        
+        ohRes.rows.forEach(row => {
+          ohActiveUsers.push(row.id);
+          ohDefaultCcusto[row.id] = row.ccusto;
+        });
+        
+        const ohHeadcount = ohActiveUsers.length;
+        console.log(`OH Headcount ativo (PostgreSQL): ${ohHeadcount}`);
+
+        // STEP 2: FETCH TD/OM HEADCOUNT (MySQL)
+        const [myUsersRes] = await mysqlPool.execute(`
+          SELECT id 
+          FROM adminis.usuarios 
+          WHERE ativo = 1 
+          AND U_CC_Padrao = '00011003OH'
+        `);
+
+
+        const tdActiveUsers = myUsersRes.map(u => u.id);
+        const tdHeadcount = tdActiveUsers.length;
+
+        console.log(`Headcount ativo (ativo=1 & U_CC_Padrao='00011003OH'): ${tdHeadcount}`);
+
+        // STEP 3: FETCH TD/OM TIMESHEETS (MySQL)
+        const [timesheetRes] = await mysqlPool.execute(`
+          SELECT 
+              u.id AS id_usuario,
+              c.Ct_Centro_Custo AS ccusto,
+              SUM(fp.Fo_Hora_Padrao) AS horas_trabalhadas
+          FROM adminis.folha_ponto fp
+          JOIN adminis.contrato c ON fp.id_contrato = c.id
+          JOIN adminis.usuarios u ON fp.id_usuario = u.id 
+          WHERE YEAR(fp.Fo_Data) = ? AND MONTH(fp.Fo_Data) = ?
+          GROUP BY u.id, c.Ct_Centro_Custo
+        `, [year, monthNum]);
+
+        const tdDistribution = {};
+        
+        timesheetRes.forEach(row => {
+          const userId = row.id_usuario;
+          const hours = Number(row.horas_trabalhadas);
+          
+          if (!tdDistribution[userId]) {
+            tdDistribution[userId] = { totalHours: 0, allocations: {} };
+          }
+          
+          tdDistribution[userId].totalHours += hours;
+          tdDistribution[userId].allocations[row.ccusto] = hours;
+        });
+
+        // STEP 4: THE APPORTIONMENT MATH
+        const totalHeadcount = ohHeadcount + tdHeadcount;
+        
+        if (totalHeadcount === 0) {
+          return res.status(400).send("Nenhum funcionário ativo encontrado no sistema.");
+        }
+
+        // We only parse the first file for the rateio
+        const inputRows = parseXls(files[0].buffer);
+        const finalOutputRows = [];
+
+        for (const row of inputRows) {
+          // DEBUG: This will print the raw row data in your Node.js terminal
+          // Look at this log to see the EXACT names of your columns!
+          console.log("Linha lida do Excel:", row);
+
+          // Use the exact names from your console.log here if they differ
+          const historico = row["Historico"] || row["Histórico"]; 
+          const debitoOH = row["Débito OH"];
+          const debitoTDOM = row["Débito TD/OM"];
+          const credito = row["Credito"] || row["Crédito"];
+
+          // Using our new robust parser
+          const entradaValor = parseCurrency(row["Entrada de Valor"]);
+
+          if (entradaValor === 0) {
+            console.log("⚠️ Linha ignorada: Valor zerado ou inválido.");
+            continue;
+          }
+
+          const perCapita = entradaValor / totalHeadcount;
+          const rowAllocations = {}; 
+          
+          const addAllocation = (debitoCode, ccusto, amount) => {
+            const safeDebito = debitoCode || "N/A";
+            const safeCredito = credito || "N/A";
+            const safeCcusto = ccusto || "N/A";
+            const safeHist = historico || "N/A";
+            
+            const key = `${safeDebito}|${safeCredito}|${safeCcusto}|${safeHist}`;
+            rowAllocations[key] = (rowAllocations[key] || 0) + amount;
+          };
+
+          // 4A: OH Employees
+          /* PREVIOUS LOGIC. DOESN'T CHECK FOR HOURS ON OH EMPLOYEES
+          for (const [ccusto, count] of Object.entries(ohDistribution)) {
+            const valor = count * perCapita;
+            addAllocation(debitoOH, ccusto, valor);
+          }
+          */
+
+          // 4A: OH Employees (Symmetrical Logic)
+          for (const userId of ohActiveUsers) {
+            const userTimesheet = ohDistribution[userId];
+            const defaultCcusto = ohDefaultCcusto[userId];
+
+            // If the business rules change and this OH user logged hours:
+            if (userTimesheet && userTimesheet.totalHours > 0) {
+              
+              for (const [ccusto, hours] of Object.entries(userTimesheet.allocations)) {
+                const proportion = hours / userTimesheet.totalHours;
+                const valor = perCapita * proportion;
+                
+                // Keep the smart check in case an OH employee logs hours to a TD/OM project
+                const isOH = ccusto.toUpperCase().endsWith("OH");
+                const currentDebito = isOH ? debitoOH : debitoTDOM;
+                
+                addAllocation(currentDebito, ccusto, valor);
+              }
+              
+            } else {
+              // CURRENT BEHAVIOR: No hours logged, allocate 100% to their default OH cost center
+              addAllocation(debitoOH, defaultCcusto, perCapita);
+            }
+          }
+          // 4B: TD/OM Employees
+          for (const userId of tdActiveUsers) {
+            const userTimesheet = tdDistribution[userId];
+
+            if (userTimesheet && userTimesheet.totalHours > 0) {
+              for (const [ccusto, hours] of Object.entries(userTimesheet.allocations)) {
+                const proportion = hours / userTimesheet.totalHours;
+                const valor = perCapita * proportion;
+
+                const isOH = ccusto.toUpperCase().endsWith("OH");
+                const currentDebito = isOH ? debitoOH : debitoTDOM;
+                addAllocation(currentDebito, ccusto, valor);
+              }
+            } else {
+              //addAllocation(debitoTDOM, "SEM_ALOCACAO", perCapita);
+              //addAllocation(debitoTDOM, "1003OH", perCapita);
+              addAllocation(debitoOH, "00011003OH", perCapita);
+            }
+          }
+
+          // Format output rows
+          for (const [key, amount] of Object.entries(rowAllocations)) {
+            const [debito, cred, ccusto, hist] = key.split("|");
+            
+            finalOutputRows.push({
+              "Debito": debito,
+              "Credito": cred,
+              "Centro de Custo": ccusto,
+              "Historico": hist,
+              "Valor": Number(amount.toFixed(2)) 
+            });
+          }
+        }
+
+        // STEP 5: GENERATE EXCEL BUFFER
+        const newWorkbook = XLSX.utils.book_new();
+        const newWorksheet = XLSX.utils.json_to_sheet(finalOutputRows);
+        
+        XLSX.utils.book_append_sheet(newWorkbook, newWorksheet, "Rateio Processado");
+
+        const excelBuffer = XLSX.write(newWorkbook, { type: 'buffer', bookType: 'xlsx' });
+
+        res.setHeader('Content-Disposition', `attachment; filename="Rateio_Processado_${month}.xlsx"`);
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        
+        return res.send(excelBuffer);
+
+      } catch (err) {
+        console.error("Erro no processamento do rateio:", err);
+        return res.status(500).send("Erro interno ao processar o rateio");
+      } finally {
+        pgClient.release();
+      }
+    } 
+    
+    // Fallback if uploadType is missing or weird
+    else {
+      return res.status(400).send("Tipo de upload inválido.");
     }
   }
 );
-
 //##change
 
 // API route to fetch data; app.get will be triggered by the fetch on the html. /api/products
@@ -206,6 +449,18 @@ app.post("/api/login", async (req, res) => {
     role: user.funcao
   };
 
+  // --- SIMPLE ACCESS LOG ---
+  try {
+    // PostgreSQL will automatically stamp it with the current date/time
+    await pool.query(
+      "INSERT INTO login_logs (login, nome) VALUES ($1, $2)",
+      [user.login, user.nome]
+    );
+  } catch (logErr) {
+    console.error("Erro ao registrar log de acesso:", logErr);
+  }
+  // ------------------------------
+
   res.json({ ok: true });
 });
 
@@ -226,116 +481,313 @@ app.get("/api/me", (req, res) => {
 });
 
 app.get("/api/accounts", requireAuth, async (req, res) => {
-  let owner = req.query.owner;
-
-  if (req.session.user?.role === "gerente") {
-    owner = req.session.user.nome;
-  }
+  let targetLogin = req.query.owner;
+  if (req.session.user?.role === "gerente") targetLogin = req.session.user.login; 
 
   try {
-    let query;
-    let params = [];
-
-    if (!owner) {
-      // ✅ Todos os gerentes → all accounts
+    let query, params = [];
+    if (!targetLogin) {
       query = `
-        SELECT ccusto
-        FROM centro_de_custo
-        WHERE ccusto IS NOT NULL
+        SELECT DISTINCT RIGHT(Ct_Centro_Custo, 6) AS ccusto
+        FROM adminis.contrato
+        WHERE Ct_Centro_Custo IS NOT NULL
+          AND Ct_Dt_Inicio >= '${MIN_DATE_FILTER}'
         ORDER BY ccusto;
       `;
     } else {
-      // ✅ Filter by gerente
       query = `
-        SELECT DISTINCT c.ccusto
-        FROM gerentes_ccustos gc
-        JOIN usuarios u ON u.id = gc.usuario_id
-        JOIN centro_de_custo c ON c.id = gc.ccusto_id
-        WHERE u.nome = $1
-          AND c.ccusto IS NOT NULL
-        ORDER BY c.ccusto;
+        SELECT DISTINCT RIGHT(c.Ct_Centro_Custo, 6) AS ccusto
+        FROM adminis.contrato c
+        JOIN adminis.usuarios u ON c.id_usuario = u.id
+        WHERE u.U_Login = ? 
+          AND c.Ct_Centro_Custo IS NOT NULL
+          AND c.Ct_Dt_Inicio >= '${MIN_DATE_FILTER}'
+        ORDER BY ccusto;
       `;
-      params.push(owner);
+      params.push(targetLogin);
     }
-
-    const { rows } = await pool.query(query, params);
+    const [rows] = await mysqlPool.execute(query, params);
     res.json(rows);
   } catch (err) {
-    console.error(err);
     res.status(500).send("Error fetching accounts");
   }
 });
 
+app.get("/api/client-hours", requireAuth, async (req, res) => {
+  const account = req.query.account;
+  
+  if (!account) return res.json(null);
 
+  try {
+    const query = `
+      WITH HorasConsumidas AS (
+          SELECT 
+              fp.id_contrato,
+              SUM(
+                  CASE 
+                      WHEN DAY(CURRENT_DATE) >= 6 AND fp.Fo_Data < DATE_FORMAT(CURRENT_DATE, '%Y-%m-01') 
+                      THEN fp.Fo_Hora_Padrao 
+                      WHEN DAY(CURRENT_DATE) < 6 AND fp.Fo_Data < DATE_FORMAT(CURRENT_DATE - INTERVAL 1 MONTH, '%Y-%m-01') 
+                      THEN fp.Fo_Hora_Padrao 
+                      ELSE 0 
+                  END
+              ) AS total_horas_lancadas,
+              SUM(
+                  CASE 
+                      WHEN DAY(CURRENT_DATE) >= 6 
+                           AND YEAR(fp.Fo_Data) = YEAR(CURRENT_DATE - INTERVAL 1 MONTH) 
+                           AND MONTH(fp.Fo_Data) = MONTH(CURRENT_DATE - INTERVAL 1 MONTH) 
+                      THEN fp.Fo_Hora_Padrao 
+                      WHEN DAY(CURRENT_DATE) < 6
+                           AND YEAR(fp.Fo_Data) = YEAR(CURRENT_DATE - INTERVAL 2 MONTH) 
+                           AND MONTH(fp.Fo_Data) = MONTH(CURRENT_DATE - INTERVAL 2 MONTH) 
+                      THEN fp.Fo_Hora_Padrao 
+                      ELSE 0 
+                  END
+              ) AS horas_mes_passado
+          FROM adminis.folha_ponto fp
+          -- FIX 1: Match against the last 6 characters
+          WHERE fp.id_contrato IN (SELECT id FROM adminis.contrato WHERE RIGHT(Ct_Centro_Custo, 6) = ?)
+          GROUP BY fp.id_contrato
+      ),
+      OrcamentoContrato AS (
+          SELECT 
+              p.id_contrato,
+              SUM(p.horaPadraoPlanejada) AS horas_totais_orcadas
+          FROM adminis.planejamento p
+          -- FIX 2: Match against the last 6 characters
+          WHERE p.id_contrato IN (SELECT id FROM adminis.contrato WHERE RIGHT(Ct_Centro_Custo, 6) = ?)
+          GROUP BY p.id_contrato 
+      )
+      SELECT 
+          c.Ct_Centro_Custo, 
+          cli.Cl_Nome,
+          TRUNCATE(COALESCE(oc.horas_totais_orcadas, 0), 2) AS orcamento_total,
+          TRUNCATE(COALESCE(hc.total_horas_lancadas, 0), 2) AS horas_consumidas,
+          TRUNCATE(COALESCE(hc.horas_mes_passado, 0), 2) AS horas_mes_passado,
+          TRUNCATE((COALESCE(oc.horas_totais_orcadas, 0) - COALESCE(hc.total_horas_lancadas, 0)), 2) AS horas_restantes
+      FROM adminis.contrato c
+      JOIN adminis.clientes cli ON c.id_cliente = cli.id 
+      LEFT JOIN OrcamentoContrato oc ON c.id = oc.id_contrato 
+      LEFT JOIN HorasConsumidas hc ON c.id = hc.id_contrato
+      -- FIX 3: Match against the last 6 characters
+      WHERE RIGHT(c.Ct_Centro_Custo, 6) = ?;
+    `;
+    
+    const [rows] = await mysqlPool.execute(query, [account, account, account]);
+
+    if (rows.length > 0) {
+      res.json(rows[0]); 
+    } else {
+      res.json(null); 
+    }
+  } catch (err) {
+    console.error("MySQL Error:", err);
+    res.status(500).send("Error fetching client hours");
+  }
+});
+
+app.get("/api/client-hours-details", requireAuth, async (req, res) => {
+  const { account, year, month } = req.query;
+  if (!account) return res.json(null);
+
+  // Dynamically build the date filter string and parameters
+  let dateFilter = "";
+  const params = [account];
+
+  if (year && year !== "all") {
+    dateFilter += " AND YEAR(fp.Fo_Data) = ? ";
+    params.push(year);
+  }
+  if (month && month !== "all") {
+    dateFilter += " AND MONTH(fp.Fo_Data) = ? ";
+    params.push(month);
+  }
+  
+  // Add account again for the final WHERE clause at the end of the query
+  params.push(account); 
+
+  try {
+    const query = `
+      WITH HorasConsumidas AS (
+          SELECT 
+              fp.id_contrato,
+              a.id_disciplina,
+              SUM(
+                  CASE 
+                      -- Se hoje for dia 5 ou mais: conta até o último dia do mês passado
+                      WHEN DAY(CURRENT_DATE) >= 6 AND fp.Fo_Data < DATE_FORMAT(CURRENT_DATE, '%Y-%m-01') 
+                      THEN fp.Fo_Hora_Padrao 
+                      
+                      -- Se hoje for antes do dia 5: conta apenas até o último dia do mês retrasado
+                      WHEN DAY(CURRENT_DATE) < 6 AND fp.Fo_Data < DATE_FORMAT(CURRENT_DATE - INTERVAL 1 MONTH, '%Y-%m-01') 
+                      THEN fp.Fo_Hora_Padrao 
+                      
+                      ELSE 0 
+                  END
+              ) AS total_horas_lancadas,
+              SUM(
+                  CASE 
+                      -- Se hoje for dia 5 ou mais: "mês passado" é de fato o mês passado (- 1 MONTH)
+                      WHEN DAY(CURRENT_DATE) >= 6 
+                           AND YEAR(fp.Fo_Data) = YEAR(CURRENT_DATE - INTERVAL 1 MONTH) 
+                           AND MONTH(fp.Fo_Data) = MONTH(CURRENT_DATE - INTERVAL 1 MONTH) 
+                      THEN fp.Fo_Hora_Padrao 
+                      
+                      -- Se hoje for antes do dia 5: "mês passado" visualmente é o mês retrasado (- 2 MONTH)
+                      WHEN DAY(CURRENT_DATE) < 6
+                           AND YEAR(fp.Fo_Data) = YEAR(CURRENT_DATE - INTERVAL 2 MONTH) 
+                           AND MONTH(fp.Fo_Data) = MONTH(CURRENT_DATE - INTERVAL 2 MONTH) 
+                      THEN fp.Fo_Hora_Padrao 
+                      
+                      ELSE 0 
+                  END
+              ) AS horas_mes_passado
+          FROM adminis.folha_ponto fp
+          JOIN adminis.atividade a ON fp.id_atividade = a.id
+          WHERE fp.id_contrato IN (SELECT id FROM adminis.contrato WHERE RIGHT(Ct_Centro_Custo, 6) = ?)
+          ${dateFilter}
+          GROUP BY fp.id_contrato, a.id_disciplina
+      )
+      SELECT 
+          c.Ct_Centro_Custo,
+          d.Di_Descricao,
+          p.horaPadraoPlanejada,
+          ROUND(COALESCE(hc.total_horas_lancadas, 0), 2) AS horas_consumidas,
+          ROUND(COALESCE(hc.horas_mes_passado, 0), 2) AS horas_mes_passado,
+          ROUND((p.horaPadraoPlanejada - COALESCE(hc.total_horas_lancadas, 0)), 2) AS horas_restantes
+      FROM adminis.planejamento p
+      JOIN adminis.disciplina d ON p.id_disciplina = d.id
+      JOIN adminis.contrato c ON p.id_contrato = c.id
+      LEFT JOIN HorasConsumidas hc ON p.id_contrato = hc.id_contrato AND p.id_disciplina = hc.id_disciplina
+      WHERE RIGHT(c.Ct_Centro_Custo, 6) = ?;
+    `;
+    
+    // We now pass the dynamic 'params' array instead of [account, account]
+    const [rows] = await mysqlPool.execute(query, params);
+    res.json(rows);
+    
+  } catch (err) {
+    console.error("MySQL Error on details:", err);
+    res.status(500).send("Error fetching client hours details");
+  }
+});
 
 //Overview
 
 app.get("/api/yearly-overview", requireAuth, async (req, res) => {
   try {
-    let owner =
-      req.query.owner && req.query.owner.trim() !== ""
-        ? req.query.owner
-        : null;
-
+    // 1. Get the login from the frontend
+    let targetLogin = req.query.owner && req.query.owner.trim() !== "" ? req.query.owner : null;
+    
+    // 2. Override for gerentes using their SESSION LOGIN
     if (req.session.user?.role === "gerente") {
-      owner = req.session.user.nome;
+      targetLogin = req.session.user.login; 
+    }
+    
+    console.log("Searching MySQL for login:", `"${targetLogin}"`);
+    const account = req.query.account && req.query.account.trim() !== "" ? req.query.account : null;
+
+    let allowedAccounts = null; 
+    
+    // 3. Fetch passing the login!
+    if (targetLogin) {
+      allowedAccounts = await getAllowedCostCenters(targetLogin);
+      if (allowedAccounts.length === 0) {
+        return res.json({ years: [], data: {} });
+      }
     }
 
-    const account =
-      req.query.account && req.query.account.trim() !== ""
-        ? req.query.account
-        : null;
+    if (account) {
+      if (allowedAccounts && !allowedAccounts.includes(account)) {
+        return res.json({ years: [], data: {} }); 
+      }
+      allowedAccounts = [account]; 
+    }
 
-    const query = `
+    // UPDATED SQL: Now groups by and fetches the category_name
+    // UPDATED SQL: Forces a join between all valid years and all categories
+    let query = `
       WITH tx AS (
         SELECT
           EXTRACT(YEAR FROM t.mes) AS ano,
-          SUM(t.debito + t.credito) AS total,
-          c.titulo,
-          c.topico,
-          c.ordem_titulo,
-          c.ordem_topico
+          t.codigo,
+          RIGHT(t.ccusto, 6) AS ccusto, -- Group by the last 6 digits
+          SUM(t.debito + t.credito) AS total
         FROM transacoes t
-        JOIN codigos co ON co.codigo = t.codigo
-        JOIN categorias c ON c.id = co.id_da_categoria
-        WHERE
-          ($1::text IS NULL OR t.ccusto = $1)
-          AND (
-            $2::text IS NULL OR EXISTS (
-              SELECT 1
-              FROM gerentes_ccustos gc
-              JOIN usuarios u        ON u.id = gc.usuario_id
-              JOIN centro_de_custo c ON c.id = gc.ccusto_id
-              WHERE c.ccusto = t.ccusto
-                AND u.nome   = $2
-            )
-          )
-        GROUP BY ano, c.titulo, c.topico, c.ordem_titulo, c.ordem_topico
+        WHERE 1=1
+    `;
+    
+    let params = [];
+    if (allowedAccounts) {
+      // Clean the array to only contain the last 6 characters before asking Postgres
+      const pgAccounts = allowedAccounts.map(acc => acc.length > 6 ? acc.slice(-6) : acc);
+      
+      query += ` AND RIGHT(t.ccusto, 6) = ANY($1::text[]) `;
+      params.push(pgAccounts);
+    }
+
+    query += `
+        GROUP BY ano, t.codigo, RIGHT(t.ccusto, 6) -- Group by the last 6 digits
+      ),
+      anos AS (
+        SELECT DISTINCT ano FROM tx WHERE ano IS NOT NULL
+      ),
+      cat_anos AS (
+        SELECT c.*, a.ano
+        FROM categorias c
+        LEFT JOIN anos a ON 1=1
       )
       SELECT
-        titulo,
-        topico,
-        ano,
-        total
-      FROM tx
-      WHERE ano IS NOT NULL
-      ORDER BY 
-        ordem_titulo, 
-        ordem_topico, 
-        topico, 
-        ano;
+        ca.ano,
+        ca.titulo,
+        ca.topico,
+        ca.nome_da_categoria AS category_name,
+        ca.id,
+        SUM(tx.total) AS total
+      FROM cat_anos ca
+      LEFT JOIN codigos co ON co.id_da_categoria = ca.id
+      LEFT JOIN tx ON tx.codigo = co.codigo AND tx.ano = ca.ano
+      GROUP BY ca.ano, ca.titulo, ca.topico, ca.nome_da_categoria, ca.id, ca.ordem_titulo, ca.ordem_topico
+      ORDER BY ca.ordem_titulo, ca.ordem_topico, ca.titulo, ca.topico, ca.nome_da_categoria, ca.ano;
     `;
 
-    const { rows } = await pool.query(query, [account, owner]);
+    const { rows } = await pool.query(query, params);
 
-    // ---------- shape ----------
     const result = {};
     const yearsSet = new Set();
 
+    // Map the new data format so it matches what our frontend expects
     for (const r of rows) {
-      if (!result[r.topico]) result[r.topico] = {titulo: r.titulo};
-      result[r.topico][r.ano] = Number(r.total);
-      yearsSet.add(r.ano);
+      if (r.ano) yearsSet.add(r.ano);
+
+      if (!result[r.topico]) {
+        result[r.topico] = {
+          titulo: r.titulo,
+          totals: {},
+          categoriesMap: {}
+        };
+      }
+
+      if (r.ano) {
+        result[r.topico].totals[r.ano] = (result[r.topico].totals[r.ano] || 0) + Number(r.total);
+        
+        if (!result[r.topico].categoriesMap[r.category_name]) {
+          result[r.topico].categoriesMap[r.category_name] = { category_name: r.category_name };
+        }
+        result[r.topico].categoriesMap[r.category_name][r.ano] = Number(r.total);
+      } else {
+        // Ensure category exists even if there are 0 transactions
+        if (!result[r.topico].categoriesMap[r.category_name]) {
+          result[r.topico].categoriesMap[r.category_name] = { category_name: r.category_name };
+        }
+      }
+    }
+
+    // Convert map to array for the frontend
+    for (const topico in result) {
+      result[topico].categories = Object.values(result[topico].categoriesMap);
+      delete result[topico].categoriesMap;
     }
 
     res.json({
@@ -343,7 +795,7 @@ app.get("/api/yearly-overview", requireAuth, async (req, res) => {
       data: result
     });
   } catch (err) {
-    console.error(err);
+    console.error("Error fetching yearly overview:", err);
     res.status(500).send("Error fetching yearly overview");
   }
 });
@@ -354,104 +806,109 @@ app.get("/api/yearly-overview", requireAuth, async (req, res) => {
 
 //By year
 app.get("/api/monthly-profit", requireAuth, async (req, res) => {
-//console.log("QUERY PARAMS:", req.query);
   try {
-    let owner =
-      req.query.owner && req.query.owner.trim() !== ""
-        ? req.query.owner
-        : null;
-
+    let targetLogin = req.query.owner && req.query.owner.trim() !== "" ? req.query.owner : null;
+    
     if (req.session.user?.role === "gerente") {
-      owner = req.session.user.nome;
+      targetLogin = req.session.user.login; // FIXED!
+    }
+    
+    const account = req.query.account && req.query.account.trim() !== "" ? req.query.account : null;
+
+    let allowedAccounts = null; 
+    
+    if (targetLogin) {
+      allowedAccounts = await getAllowedCostCenters(targetLogin);
+      if (allowedAccounts.length === 0) {
+        return res.json({}); 
+      }
     }
 
-    const account =
-      req.query.account && req.query.account.trim() !== ""
-        ? req.query.account
-        : null;
+    if (account) {
+      if (allowedAccounts && !allowedAccounts.includes(account)) {
+        return res.json({}); 
+      }
+      allowedAccounts = [account]; 
+    }
 
-    const query = `
+    // Step 2: Query PostgreSQL with the allowed array
+  // Step 2: Query PostgreSQL with the allowed array and the cross-referenced CTE
+    let query = `
       WITH tx AS (
-  SELECT 
-      t.codigo,
-      t.ccusto,
-      EXTRACT(YEAR  FROM t.mes)  AS ano,
-      EXTRACT(MONTH FROM t.mes) AS mes,
-      SUM(t.debito + t.credito) AS total
-  FROM transacoes t
-  WHERE
-    ($1::text IS NULL OR t.ccusto = $1)
-    AND (
-      $2::text IS NULL OR EXISTS (
-        SELECT 1
-        FROM gerentes_ccustos gc
-        JOIN usuarios u        ON u.id = gc.usuario_id
-        JOIN centro_de_custo c ON c.id = gc.ccusto_id
-        WHERE c.ccusto = t.ccusto
-          AND u.nome   = $2
-      )
-    )
-  GROUP BY t.codigo, t.ccusto, ano, mes
-)
-
-SELECT 
-    tx.ano,
-    c.titulo,
-    c.topico,
-    c.nome_da_categoria AS category_name,
-    c.id,
-
-    SUM(CASE WHEN tx.mes = 1  THEN tx.total ELSE 0 END) AS jan,
-    SUM(CASE WHEN tx.mes = 2  THEN tx.total ELSE 0 END) AS fev,
-    SUM(CASE WHEN tx.mes = 3  THEN tx.total ELSE 0 END) AS mar,
-    SUM(CASE WHEN tx.mes = 4  THEN tx.total ELSE 0 END) AS abr,
-    SUM(CASE WHEN tx.mes = 5  THEN tx.total ELSE 0 END) AS mai,
-    SUM(CASE WHEN tx.mes = 6  THEN tx.total ELSE 0 END) AS jun,
-    SUM(CASE WHEN tx.mes = 7  THEN tx.total ELSE 0 END) AS jul,
-    SUM(CASE WHEN tx.mes = 8  THEN tx.total ELSE 0 END) AS ago,
-    SUM(CASE WHEN tx.mes = 9  THEN tx.total ELSE 0 END) AS set,
-    SUM(CASE WHEN tx.mes = 10 THEN tx.total ELSE 0 END) AS out,
-    SUM(CASE WHEN tx.mes = 11 THEN tx.total ELSE 0 END) AS nov,
-    SUM(CASE WHEN tx.mes = 12 THEN tx.total ELSE 0 END) AS dez
-
-FROM categorias c
-LEFT JOIN codigos co ON co.id_da_categoria = c.id
-LEFT JOIN tx        ON tx.codigo = co.codigo
-
-
-GROUP BY
-    tx.ano,
-    c.titulo,
-    c.topico,
-    c.nome_da_categoria,
-    c.id,
-    c.ordem_titulo,
-    c.ordem_topico
-
-ORDER BY
-    tx.ano,
-      c.ordem_titulo,
-      c.ordem_topico,
-      c.titulo,
-      c.topico;
+        SELECT 
+            t.codigo,
+            RIGHT(t.ccusto, 6) AS ccusto, -- Group by the last 6 digits
+            EXTRACT(YEAR  FROM t.mes)  AS ano,
+            EXTRACT(MONTH FROM t.mes) AS mes,
+            SUM(t.debito + t.credito) AS total
+        FROM transacoes t
+        WHERE 1=1
     `;
 
-    /*
-    const params = [account];
-    const result = await pool.query(query, params);
-    res.json(result.rows);
-    */
+    let params = [];
+    if (allowedAccounts) {
+      // Clean the array to only contain the last 6 characters before asking Postgres
+      const pgAccounts = allowedAccounts.map(acc => acc.length > 6 ? acc.slice(-6) : acc);
+      
+      query += ` AND RIGHT(t.ccusto, 6) = ANY($1::text[]) `;
+      params.push(pgAccounts);
+    }
 
-     const { rows } = await pool.query(query, [account, owner]);
+    query += `
+        GROUP BY t.codigo, RIGHT(t.ccusto, 6), ano, mes -- Group by the last 6 digits
+      ),
+      anos AS (
+        SELECT DISTINCT ano FROM tx WHERE ano IS NOT NULL
+      ),
+      cat_anos AS (
+        SELECT c.*, a.ano
+        FROM categorias c
+        LEFT JOIN anos a ON 1=1
+      )
+      SELECT 
+          ca.ano,
+          ca.titulo,
+          ca.topico,
+          ca.nome_da_categoria AS category_name,
+          ca.id,
+          SUM(CASE WHEN tx.mes = 1  THEN tx.total ELSE 0 END) AS jan,
+          SUM(CASE WHEN tx.mes = 2  THEN tx.total ELSE 0 END) AS fev,
+          SUM(CASE WHEN tx.mes = 3  THEN tx.total ELSE 0 END) AS mar,
+          SUM(CASE WHEN tx.mes = 4  THEN tx.total ELSE 0 END) AS abr,
+          SUM(CASE WHEN tx.mes = 5  THEN tx.total ELSE 0 END) AS mai,
+          SUM(CASE WHEN tx.mes = 6  THEN tx.total ELSE 0 END) AS jun,
+          SUM(CASE WHEN tx.mes = 7  THEN tx.total ELSE 0 END) AS jul,
+          SUM(CASE WHEN tx.mes = 8  THEN tx.total ELSE 0 END) AS ago,
+          SUM(CASE WHEN tx.mes = 9  THEN tx.total ELSE 0 END) AS set,
+          SUM(CASE WHEN tx.mes = 10 THEN tx.total ELSE 0 END) AS out,
+          SUM(CASE WHEN tx.mes = 11 THEN tx.total ELSE 0 END) AS nov,
+          SUM(CASE WHEN tx.mes = 12 THEN tx.total ELSE 0 END) AS dez
+      FROM cat_anos ca
+      LEFT JOIN codigos co ON co.id_da_categoria = ca.id
+      LEFT JOIN tx ON tx.codigo = co.codigo AND tx.ano = ca.ano
+      GROUP BY
+          ca.ano,
+          ca.titulo,
+          ca.topico,
+          ca.nome_da_categoria,
+          ca.id,
+          ca.ordem_titulo,
+          ca.ordem_topico
+      ORDER BY
+          ca.ano,
+          ca.ordem_titulo,
+          ca.ordem_topico,
+          ca.titulo,
+          ca.topico;
+    `;
 
-
+    const { rows } = await pool.query(query, params);
     const result = {};
 
     for (const row of rows) {
       const year = row.ano;
-      //If the object with the current year doesn't exist, create it
       if (!result[year]) result[year] = {};
-      //If the current topic doesn't exist, create the topic
+      
       if (!result[year][row.topico]) {
         result[year][row.topico] = {
           titulo: row.titulo,
@@ -463,18 +920,15 @@ ORDER BY
         };
       }
 
-      //result[anoAtual][topicoAtual].keysDoObjetoTotal("jan", "fev"...)
       for (const m in result[year][row.topico].totals) {
-        //m = "jan"  totals.jan += Number(row.jan)
         result[year][row.topico].totals[m] += Number(row[m]);
       }
-      //add the current row (ano, topico, category_name...) to the categories array
       result[year][row.topico].categories.push(row);
     }
 
     res.json(result);
   } catch (err) {
-    console.error(err);
+    console.error("Error fetching monthly profit:", err);
     res.status(500).send("Server error fetching data");
   }
 });
@@ -519,25 +973,45 @@ app.get("/api/categories-profit", async (req, res) => {
   }
 });
 */
+app.get("/api/client-hours-periods", requireAuth, async (req, res) => {
+  const account = req.query.account;
+  if (!account) return res.json([]);
+
+  try {
+    const query = `
+      SELECT DISTINCT 
+          YEAR(fp.Fo_Data) AS ano, 
+          MONTH(fp.Fo_Data) AS mes
+      FROM adminis.folha_ponto fp
+      WHERE fp.id_contrato IN (SELECT id FROM adminis.contrato WHERE Ct_Centro_Custo = ?)
+      ORDER BY ano DESC, mes DESC;
+    `;
+    const [rows] = await mysqlPool.execute(query, [account]);
+    res.json(rows);
+  } catch (err) {
+    console.error("Error fetching periods:", err);
+    res.status(500).send("Error fetching client hours periods");
+  }
+});
 
 app.get("/api/owners", requireAuth, async (req, res) => {
   try {
-
-    // 🔒 Manager can only see himself
     if (req.session.user.role === "gerente") {
       return res.json([
-        { nome: req.session.user.nome }
+        { nome: req.session.user.nome, login: req.session.user.login } // Added login here
       ]);
     }
 
-    // Admin & Diretor see all gerentes
-    const { rows } = await pool.query(`
-      SELECT id, nome
-      FROM usuarios
-      WHERE funcao = 'gerente'
-      ORDER BY nome;
-    `);
+    const query = `
+      SELECT DISTINCT u.U_Nome AS nome, u.U_Login AS login -- Added login here
+      FROM adminis.contrato c
+      JOIN adminis.usuarios u ON c.id_usuario = u.id
+      WHERE c.Ct_Dt_Inicio >= '${MIN_DATE_FILTER}'
+        AND c.Ct_Centro_Custo IS NOT NULL
+      ORDER BY u.U_Nome;
+    `;
 
+    const [rows] = await mysqlPool.execute(query);
     res.json(rows);
 
   } catch (err) {

@@ -3,8 +3,11 @@
 
 <head>
   <meta charset="UTF-8">
-  <title>001</title>
+  <title>SIGE</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
 </head>
 
 <body>
@@ -21,7 +24,7 @@
         </svg>
       </div>
       <div class="header-text">
-        <h1 class="main-title">Sistema Financeiro</h1>
+        <h1 class="main-title">SIGE</h1>
         <p class="sub-title">Painel Gerencial</p>
       </div>
       <button onclick="logout()" class="btn" style="margin-left:auto">Sair</button>
@@ -38,16 +41,30 @@
         </div>
 
         <div class="filter-item">
-          <label>Arquivo XLS (1)</label>
-          <div class="file-box">
-            <input type="file" name="files" accept=".xls,.xlsx" />
+          <label>Tipo de Upload:</label>
+          <div style="display: flex; gap: 15px; margin-top: 5px;">
+            <label style="cursor: pointer;">
+              <input type="radio" name="uploadType" value="direto" checked> 
+              Lançamento Direto (Banco de Dados)
+            </label>
+            <label style="cursor: pointer;">
+              <input type="radio" name="uploadType" value="rateio"> 
+              Gerar Rateio (Download Excel)
+            </label>
           </div>
         </div>
 
         <div class="filter-item">
+          <label>Arquivo XLS (1)</label>
+          <div class="file-box">
+            <input type="file" name="files" accept=".xls,.xlsx" required />
+          </div>
+        </div>
+
+        <div class="filter-item" id="file2Container">
           <label>Arquivo XLS (2)</label>
           <div class="file-box">
-            <input type="file" name="files" accept=".xls,.xlsx" />
+            <input type="file" name="files" id="file2Input" accept=".xls,.xlsx" />
           </div>
         </div>
 
@@ -74,6 +91,12 @@
       </div>
     </div>
 
+    <div id="clientHoursSection" class="overview-section" style="display: none; margin-bottom: 20px;">
+      <h3 style="margin-top: 0; color: #1e293b; font-size: 16px;"> Resumo do Projeto</h3>
+      <div id="clientHoursContent" style="display: flex; gap: 40px; margin-top: 15px; color: #475569;">
+        </div>
+    </div>
+
     <div class="overview-section">
       <h2 id="toggleYearlyOverview" class="year">▶ Comparação Anual</h2>
       <div id="yearlyOverview" style="display: none;"></div>
@@ -88,7 +111,25 @@
       <button class="btn" onclick="showTrimester(4); updateActiveButton(this)">T4</button>
     </div>
     <br>
+
+    
     <div id="yearsContainer"></div>
+
+    <div id="chartModal" class="modal" onclick="closeModalOnOutsideClick(event)">
+      <div class="modal-content">
+        <span class="close-btn" onclick="closeModal()">&times;</span>
+        <h3 id="modalTitle" style="margin-top: 0; color: #1e293b;">Detalhamento</h3>
+        
+        <div id="modalFilters" style="display: none; gap: 10px; margin-bottom: 15px;">
+          <select id="modalYearSelect" class="select" style="padding: 5px; height: 35px; min-width: 120px;"></select>
+          <select id="modalMonthSelect" class="select" style="padding: 5px; height: 35px; min-width: 120px;"></select>
+        </div>
+
+        <div style="position: relative; height:300px; width:100%">
+          <canvas id="detailsChart"></canvas>
+        </div>
+      </div>
+    </div>
 
     <script>
 
@@ -143,50 +184,111 @@
       }
       /* ---------- LOAD DATA ---------- */
 
+      async function loadClientHours() {
+        const account = document.getElementById("accountSelect").value;
+        const section = document.getElementById("clientHoursSection");
+        const content = document.getElementById("clientHoursContent");
+
+        // Hide the section if no account is selected
+        if (!account) {
+          section.style.display = "none";
+          return;
+        }
+
+        try {
+          const res = await fetch(`/api/client-hours?account=${encodeURIComponent(account)}`);
+          const data = await res.json();
+
+          if (data) {
+            // Show the section container
+            section.style.display = "block";
+            
+            // Check if there are actually hours budgeted for this project
+            if (Number(data.orcamento_total) > 0) {
+              content.innerHTML = `
+                <div><strong>Cliente:</strong> ${data.Cl_Nome}</div>
+                <div class="clickable-metric" onclick="openChartModal('totais', '${account}')"><strong>Horas Totais:</strong> <span>${data.orcamento_total}h</span></div>
+                <div class="clickable-metric" onclick="openChartModal('consumidas', '${account}')"><strong>Horas Utilizadas:</strong> <span>${data.horas_consumidas}h</span></div>
+                <div class="clickable-metric" onclick="openChartModal('mes_passado', '${account}')"><strong>Horas do Mês Passado:</strong> <span>${data.horas_mes_passado}h</span></div>
+                <div class="clickable-metric" onclick="openChartModal('restantes', '${account}')"><strong>Horas Restantes:</strong> <span>${data.horas_restantes}h</span></div>
+              `;
+            } else {
+              // If no hours, show the client name and a placeholder message
+              content.innerHTML = `
+                <div><strong>Cliente:</strong> ${data.Cl_Nome}</div>
+                <div style="color: #94a3b8; font-style: italic; display: flex; align-items: center;">Nenhuma hora planejada para este projeto.</div>
+              `;
+            }
+          } else {
+            // Hide if the query returned no results for this specific cost center at all
+            section.style.display = "none";
+          }
+        } catch (err) {
+          console.error("Error loading client hours:", err);
+        }
+      }
+
+
       async function loadAccounts() {
         const owner = document.getElementById("ownerSelect").value;
         const accountSelect = document.getElementById("accountSelect");
 
         let url = "/api/accounts";
-        if (owner) {
-          url += `?owner=${encodeURIComponent(owner)}`;
-        }
+        if (owner) url += `?owner=${encodeURIComponent(owner)}`;
 
         const res = await fetch(url);
         const data = await res.json();
 
-        // 🔥 FULL RESET (this is the missing piece)
-        accountSelect.innerHTML = "";
-        accountSelect.value = "";
+        accountSelect.innerHTML = '<option value="">Todas as contas</option>';
 
-        // Default option
-        const defaultOpt = document.createElement("option");
-        defaultOpt.value = "";
-        defaultOpt.textContent = "Todas as contas";
-        accountSelect.appendChild(defaultOpt);
+        const formattedData = data.map(a => {
+          // The backend now sends "5678AB"
+          let baseValue = a.ccusto; 
+          let displayValue = baseValue;
 
-        // Add filtered accounts only
-        data.forEach(a => {
+          if (baseValue && baseValue.length === 6) {
+            // Grab the numbers "5678" and letters "AB"
+            let numbers = baseValue.slice(0, 4);
+            let letters = baseValue.slice(-2);
+            
+            // Swap to "AB5678"
+            displayValue = letters + numbers; 
+          }
+
+          return { originalValue: baseValue, displayValue: displayValue };
+        });
+
+        formattedData.sort((a, b) => a.displayValue.localeCompare(b.displayValue, undefined, { numeric: true, sensitivity: 'base' }));
+
+        formattedData.forEach(item => {
           const opt = document.createElement("option");
-          opt.value = a.ccusto;
-          opt.textContent = a.ccusto;
+          opt.value = item.originalValue;      // Sends "5678AB" back to backend
+          opt.textContent = item.displayValue; // User sees "AB5678"
           accountSelect.appendChild(opt);
         });
       }
 
-      async function loadOwners() {
-        const res = await fetch("/api/owners");
-        const data = await res.json();
+      async function loadOwners(user) {
+      const res = await fetch("/api/owners");
+      const data = await res.json();
 
-        const sel = document.getElementById("ownerSelect");
+      const sel = document.getElementById("ownerSelect");
 
-        data.forEach(o => {
-          const opt = document.createElement("option");
-          opt.value = o.nome;
-          opt.textContent = o.nome;
-          sel.appendChild(opt);
-        });
+      if (user && user.role === "gerente") {
+        sel.innerHTML = ""; 
       }
+
+      data.forEach(o => {
+        const opt = document.createElement("option");
+        opt.value = o.login;       // <-- THE MAGIC CHANGE: The server receives the login
+        opt.textContent = o.nome;  // <-- But the user still reads the Name
+        sel.appendChild(opt);
+      });
+
+      if (user && user.role === "gerente") {
+        sel.disabled = true;
+      }
+    }
 
       async function loadMonthlyProfit() {
         const account = document.getElementById("accountSelect").value;
@@ -224,62 +326,372 @@
 
       /* ---------- RENDER ---------- */
 
-      function renderYearlyOverview({ years, data }) {
-        const container = document.getElementById("yearlyOverview");
-        const toggleH2 = document.getElementById("toggleYearlyOverview");
-        
-        container.innerHTML = "";
+      // Helper to return solid or transparent colors based on the value
+      function getDynamicColor(value, isOpaque) {
+        // You can adjust these thresholds (-50, 0, 50) to make sense for your project hours!
+        if (value < -50) return isOpaque ? '#D60000' : 'rgba(214, 0, 0, 0.9)'; // Red
+        if (value < 0)   return isOpaque ? '#F46300' : 'rgba(244, 99, 0, 0.9)'; // Orange
+        if (value < 50)  return isOpaque ? '#0358B6' : 'rgba(3, 88, 182, 0.9)'; // Blue
+        return isOpaque ? '#0358B6' : 'rgba(3, 88, 182, 0.9)';                 // Blue
+      }
 
-        const table = document.createElement("table");
-        table.innerHTML = `
-          <thead>
-            <tr>
-              <th>Tópico</th>
-              ${years.map(y => `<th>${y}</th>`).join("")}
-              <th>Total</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        `;
-
-        const tbody = table.querySelector("tbody");
-        let lastTitulo = null;
-
-        Object.entries(data).forEach(([topic, values]) => {
-          if (values.titulo && values.titulo !== lastTitulo) {
-            const trTitle = document.createElement("tr");
-            trTitle.className = "title-row";
-            trTitle.innerHTML = `<td colspan="${years.length + 2}">${values.titulo}</td>`;
-            tbody.appendChild(trTitle);
-            lastTitulo = values.titulo;
-          }
-
-          let rowTotal = 0;
-          const yearCells = years.map(y => {
-            const v = values[y] || 0;
-            rowTotal += v;
-            return `<td>${numberFormatter.format(v)}</td>`;
-          });
-
-          const tr = document.createElement("tr");
-          tr.className = "topic-row";
-          tr.innerHTML = `
-            <td>${topic}</td>
-            ${yearCells.join("")}
-            <td><strong>${numberFormatter.format(rowTotal)}</strong></td>
-          `;
-          tbody.appendChild(tr);
-        });
-
-        container.appendChild(table);
-
-        // Add the click event for toggling
-        toggleH2.onclick = () => {
-          const isHidden = container.style.display === "none";
-          container.style.display = isHidden ? "block" : "none";
-          toggleH2.textContent = (isHidden ? "▼ " : "▶ ") + "Comparação Anual";
+      // The colorize function adapted to not need the external 'Utils' object
+      function colorize(isOpaque) {
+        return (ctx) => {
+          // Make sure we have a parsed value before applying color
+          const v = ctx.parsed && ctx.parsed.y !== undefined ? ctx.parsed.y : 0;
+          return getDynamicColor(v, isOpaque);
         };
       }
+
+      let currentChart = null; 
+
+      // State variables to remember what the user is looking at
+      let currentModalAccount = null;
+      let currentModalMetric = null;
+      let modalPeriods = [];
+
+
+      async function openChartModal(metricType, account) {
+        currentModalAccount = account;
+        currentModalMetric = metricType;
+        
+        const modal = document.getElementById("chartModal");
+        const filtersDiv = document.getElementById("modalFilters");
+        const yearSelect = document.getElementById("modalYearSelect");
+        const monthSelect = document.getElementById("modalMonthSelect");
+
+        // Only show dropdowns if the metric is 'consumidas'
+        if (metricType === 'consumidas') {
+          filtersDiv.style.display = "flex";
+          
+          // Fetch the available periods
+          const res = await fetch(`/api/client-hours-periods?account=${encodeURIComponent(account)}`);
+          modalPeriods = await res.json();
+          
+          // Populate Years
+          const years = [...new Set(modalPeriods.map(p => p.ano).filter(y => y !== null))];
+          yearSelect.innerHTML = '<option value="all">Todos os Anos</option>';
+          years.forEach(y => {
+            yearSelect.add(new Option(y, y));
+          });
+
+          // Initialize Months
+          monthSelect.innerHTML = '<option value="all">Todos os Meses</option>';
+          const allMonths = [...new Set(modalPeriods.map(p => p.mes).filter(m => m !== null))].sort((a, b) => a - b);
+          allMonths.forEach(m => {
+            const monthStr = m.toString().padStart(2, '0');
+            monthSelect.add(new Option(monthStr, m));
+          });
+          
+          // Set triggers for when the user clicks the dropdown
+          yearSelect.onchange = handleModalFilterChange;
+          monthSelect.onchange = () => loadChartData(yearSelect.value, monthSelect.value);
+
+        } else {
+          filtersDiv.style.display = "none";
+        }
+
+        modal.style.display = "flex";
+        // Do the initial load showing ALL data
+        await loadChartData("all", "all");
+      }
+
+      function handleModalFilterChange() {
+        const year = document.getElementById("modalYearSelect").value;
+        const monthSelect = document.getElementById("modalMonthSelect");
+        const currentMonth = monthSelect.value; // Remember what month was selected
+
+        monthSelect.innerHTML = '<option value="all">Todos os Meses</option>';
+
+        let validMonths = [];
+
+      // 1. First, figure out which months we need based on the year dropdown
+      if (year !== "all") {
+        validMonths = modalPeriods
+          .filter(p => String(p.ano) === year && p.mes !== null)
+          .map(p => p.mes);
+      } else {
+        validMonths = modalPeriods
+          .filter(p => p.mes !== null)
+          .map(p => p.mes);
+      }
+
+      // 2. Remove duplicates and sort them chronologically
+      const uniqueMonths = [...new Set(validMonths)].sort((a, b) => a - b);
+        
+      // 3. Build the actual dropdown options
+      uniqueMonths.forEach(m => {
+        const monthStr = m.toString().padStart(2, '0');
+        monthSelect.add(new Option(monthStr, m));
+      });
+
+      // 4. Restore the user's previously selected month (if it still exists in the new list)
+      if (uniqueMonths.includes(Number(currentMonth))) {
+        monthSelect.value = currentMonth;
+      }
+        
+        // Redraw the chart with the new filters
+        loadChartData(year, monthSelect.value);
+      }
+
+      async function loadChartData(year, month) {
+        try {
+          let url = `/api/client-hours-details?account=${encodeURIComponent(currentModalAccount)}`;
+          if (year !== "all") url += `&year=${year}`;
+          if (month !== "all") url += `&month=${month}`;
+
+          const res = await fetch(url);
+          const details = await res.json();
+
+          const modalTitle = document.getElementById("modalTitle");
+          const ctx = document.getElementById("detailsChart").getContext('2d');
+
+          let labels = [];
+          let dataPoints = [];
+          let title = "";
+
+          const formatter = new Intl.NumberFormat("pt-BR", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+          });
+
+          details.forEach(row => {
+            let val = 0;
+            if (currentModalMetric === 'totais') {
+              val = row.horaPadraoPlanejada;
+              title = "Horas Totais por Área";
+            } else if (currentModalMetric === 'consumidas') {
+              val = row.horas_consumidas;
+              title = "Horas Utilizadas por Área";
+              // Update title to reflect the chosen date filter
+              if (year !== "all") title += ` (${year}${month !== "all" ? '/' + month.toString().padStart(2, '0') : ''})`;
+            } else if (currentModalMetric === 'restantes') {
+              val = row.horas_restantes;
+              title = "Horas Restantes por Área";
+            } else if (currentModalMetric === 'mes_passado') {
+              val = row.horas_mes_passado;
+              title = "Horas do Último Mês por Área";
+            }
+
+            dataPoints.push(val);
+            labels.push(`${row.Di_Descricao}: ${formatter.format(val)}h`);
+          });
+
+          modalTitle.innerText = title;
+
+          if (currentChart) {
+            currentChart.destroy();
+          }
+
+          const chartType = currentModalMetric === 'totais' ? 'pie' : 'bar';
+          const dataset = { label: title, data: dataPoints, borderWidth: 2 };
+
+          if (chartType === 'pie') {
+            dataset.backgroundColor = ['#3f51b5', '#e91e63', '#4caf50', '#ff9800', '#00bcd4', '#9c27b0', '#ffc107', '#607d8b'];
+          } else {
+            dataset.backgroundColor = colorize(false);
+            dataset.borderColor = colorize(true);
+          }
+
+          const options = {
+            scales: { x: { ticks: { maxRotation: 30, minRotation: 30, autoSkip: false } } },
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              datalabels: {
+                display: chartType === 'bar',
+                anchor: 'center',
+                align: 'center',
+                color: 'white',
+                font: { weight: 'lighter' },
+                formatter: (value) => value
+              },
+              legend: {
+                display: chartType === 'pie',
+                position: 'right'
+              }
+            }
+          };
+
+          currentChart = new Chart(ctx, {
+            type: chartType,
+            data: { labels: labels, datasets: [dataset] },
+            options: options,
+            plugins: [ChartDataLabels]
+          });
+
+        } catch (err) {
+          console.error("Error drawing chart:", err);
+        }
+      }
+
+      function closeModal() {
+        document.getElementById("chartModal").style.display = "none";
+      }
+
+      function closeModalOnOutsideClick(event) {
+        const modal = document.getElementById("chartModal");
+        if (event.target === modal) {
+          closeModal();
+        }
+      }
+
+
+function renderYearlyOverview({ years, data }) {
+  const container = document.getElementById("yearlyOverview");
+  const toggleH2 = document.getElementById("toggleYearlyOverview");
+
+  container.innerHTML = "";
+
+  const table = document.createElement("table");
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>Categoria</th>
+        ${years.map(y => `<th>${y}</th>`).join("")}
+        <th style="text-align: right;">Total Histórico</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  `;
+
+  const tbody = table.querySelector("tbody");
+
+  // --- Helpers for dynamic year math ---
+  const emptyYears = () => {
+    const obj = {};
+    years.forEach(y => obj[y] = 0);
+    return obj;
+  };
+  const addYearsData = (target, source) => {
+    years.forEach(y => { target[y] += (source[y] || 0); });
+  };
+  const getRowTotal = (totals) => years.reduce((sum, y) => sum + (totals[y] || 0), 0);
+
+  // --- Pre-calculate Title Totals ---
+  const titleTotalsMap = {};
+  Object.values(data).forEach(obj => {
+    if (!titleTotalsMap[obj.titulo]) titleTotalsMap[obj.titulo] = emptyYears();
+    addYearsData(titleTotalsMap[obj.titulo], obj.totals);
+  });
+
+  // --- State Variables ---
+  let titleIndex = 0;
+  let currentTitle = null;
+  let titleSum = emptyYears();
+
+  const T1 = emptyYears();
+  const T2 = emptyYears();
+  const T3 = emptyYears();
+  const totalMargin = emptyYears();
+
+  let lastTitulo = null;
+
+  // --- HTML Row Builders ---
+function buildRow(type, label, totals, arrow = "") {
+    const tr = document.createElement("tr");
+    tr.className = type;
+    const totalValue = getRowTotal(totals);
+
+    // <-- ADD THIS: Hide topics by default -->
+    if (type.includes("topic-row")) {
+      tr.style.display = "none"; 
+    }
+
+    let firstCol = label;
+    if (type.includes("title-row")) { // <-- Changed to .includes to catch "title-row collapsed"
+      firstCol = `<span class="title-toggle">${arrow}</span>${label}`;
+      tr.style.cursor = "pointer";
+      tr.addEventListener("click", () => toggleTitle(tr)); 
+    } else if (type.includes("topic-row")) { // <-- Changed to .includes
+      firstCol = `<span class="topic-toggle">${arrow}</span>${label}`;
+      tr.addEventListener("click", () => toggleCategories(tr)); 
+    } else if (type === "sum-row") {
+      firstCol = `<strong>${label}</strong>`;
+    }
+
+    tr.innerHTML = `<td>${firstCol}</td>` +
+      years.map(y => `<td>${numberFormatter.format(totals[y] || 0)}</td>`).join("") +
+      `<td style="text-align: right;"><strong>${numberFormatter.format(totalValue)}</strong></td>`;
+
+    return tr;
+  }
+
+  function buildCategory(r) {
+    const tr = document.createElement("tr");
+    tr.className = "category-row";
+    tr.style.display = "none";
+    const totalValue = getRowTotal(r);
+
+    tr.innerHTML = `<td>${r.category_name}</td>` +
+      years.map(y => `<td>${numberFormatter.format(r[y] || 0)}</td>`).join("") +
+      `<td style="text-align: right;">${numberFormatter.format(totalValue)}</td>`;
+    
+    return tr;
+  }
+
+  // --- Main Rendering Loop ---
+  Object.entries(data).forEach(([topic, obj]) => {
+
+    // TITLE CHANGE
+    if (obj.titulo !== lastTitulo) {
+      if (currentTitle) {
+        if (titleIndex === 1) addYearsData(T1, titleSum);
+        if (titleIndex === 2) addYearsData(T2, titleSum);
+        if (titleIndex === 3) addYearsData(T3, titleSum);
+
+        // Sum rows
+        if (titleIndex === 1) tbody.appendChild(buildRow("sum-row", TOTAL_LABELS.T1, titleSum));
+        if (titleIndex === 3) {
+          const totalT3 = emptyYears();
+          addYearsData(totalT3, T2);
+          addYearsData(totalT3, T3);
+          tbody.appendChild(buildRow("sum-row", TOTAL_LABELS.T3, totalT3));
+
+          addYearsData(totalMargin, T1);
+          addYearsData(totalMargin, T2);
+          addYearsData(totalMargin, T3);
+          tbody.appendChild(buildRow("sum-row", TOTAL_LABELS.TOTAL_MARGIN, totalMargin));
+        }
+        titleSum = emptyYears();
+      }
+
+      titleIndex++;
+      currentTitle = obj.titulo;
+      lastTitulo = obj.titulo;
+
+      // Draw the new title row
+      tbody.appendChild(buildRow("title-row collapsed", obj.titulo, titleTotalsMap[obj.titulo], "▶"));
+    }
+
+    // TOPIC
+    tbody.appendChild(buildRow("topic-row collapsed", topic, obj.totals, "▶"));
+    addYearsData(titleSum, obj.totals);
+
+    // CATEGORIES
+    obj.categories.forEach(c => {
+      tbody.appendChild(buildCategory(c));
+    });
+  });
+
+  // CLOSE FINAL TITLE
+  if (currentTitle && titleIndex === 4) {
+    const finalT4 = emptyYears();
+    addYearsData(finalT4, titleSum);
+    addYearsData(finalT4, totalMargin);
+    tbody.appendChild(buildRow("sum-row", TOTAL_LABELS.T4, finalT4));
+  }
+
+  container.appendChild(table);
+
+  // Toggle Visibility
+  toggleH2.onclick = () => {
+    const isHidden = container.style.display === "none" || container.style.display === "";
+    container.style.display = isHidden ? "block" : "none";
+    toggleH2.textContent = (isHidden ? "▼ " : "▶ ") + "Comparação Anual";
+  };
+}
 
       function filteredTotals(totals) {
         const result = emptyMonths();
@@ -310,7 +722,6 @@
         const tr = document.createElement("tr");
         tr.className = "sum-row";
 
-        const showTotalCol = activeMonths.length < 12;
         const totalValue = getActiveTotal(totals);
 
         tr.innerHTML = `
@@ -326,13 +737,13 @@
               </td>
             `;
           }).join("")}
-          ${showTotalCol ? `<td class="trimester-total" style="text-align: right;"><strong>${numberFormatter.format(totalValue)}</strong></td>` : ''}
+          <td class="trimester-total" style="text-align: right;"><strong>${numberFormatter.format(totalValue)}</strong></td>
         `;
 
         return tr;
       }
 
-      function renderYears(data) {
+function renderYears(data) {
   const container = document.getElementById("yearsContainer");
   container.innerHTML = "";
 
@@ -351,20 +762,27 @@
 
       h.textContent = (isExpanded ? "▼ " : "▶ ") + year;
 
-      const showTotalCol = activeMonths.length < 12;
+      const totalLabel = activeMonths.length < 12 ? "Total Trimestre" : "Total do Ano";
 
       table.innerHTML = `
         <thead>
           <tr>
             <th>Categoria</th>
             ${months.map((m, i) => `<th data-month="${i + 1}">${m[1]}</th>`).join("")}
-            ${showTotalCol ? `<th class="trimester-total" style="text-align: right;">Total Trimestre</th>` : ''}
+            <th class="trimester-total" style="text-align: right;">${totalLabel}</th>
           </tr>
         </thead>
         <tbody></tbody>
       `;
 
       const tbody = table.querySelector("tbody");
+
+      // ---------- PRE-CALCULATE TITLE SUMS ----------
+      const titleTotalsMap = {};
+      Object.values(data[year]).forEach(obj => {
+        if (!titleTotalsMap[obj.titulo]) titleTotalsMap[obj.titulo] = emptyMonths();
+        addMonths(titleTotalsMap[obj.titulo], obj.totals);
+      });
 
       // ---------- STATE ----------
       let titleIndex = 0;
@@ -440,11 +858,14 @@
           currentTitle = obj.titulo;
           lastTitulo = obj.titulo;
 
-          tbody.appendChild(titleRow(obj.titulo));
+          // CHANGE: Pass the pre-calculated totals to the titleRow function
+          tbody.appendChild(titleRow(obj.titulo, titleTotalsMap[obj.titulo]));
         }
 
         // ===== TOPIC =====
-        tbody.appendChild(topicRow(topic, obj.totals));
+        const tRow = topicRow(topic, obj.totals);
+        tRow.style.display = "none"; // <-- Hide by default because title is collapsed
+        tbody.appendChild(tRow);
         addMonths(titleSum, obj.totals);
 
         // ===== CATEGORIES =====
@@ -487,34 +908,80 @@
       container.appendChild(table);
     });
 
-    applyMonthVisibility();
+  applyMonthVisibility();
 }
         
 
       /* ---------- ROWS ---------- */
 
-      function titleRow(text) {
-        const tr = document.createElement("tr");
-        tr.className = "title-row";
-        
-        // If we are showing the total column, the colspan needs to account for the extra column
-        const showTotalCol = activeMonths.length < 12;
-        const colSpanSize = months.length + 1 + (showTotalCol ? 1 : 0);
+function titleRow(text, totals) {
+  const tr = document.createElement("tr");
+  tr.className = "title-row collapsed"; // <-- Now collapsed by default
 
-        tr.innerHTML = `
-        <td colspan="${colSpanSize}">
-          ${text}
-        </td>
-      `;
-        return tr;
+  const totalValue = getActiveTotal(totals);
+
+  tr.innerHTML = `<td>
+      <span class="title-toggle">▶</span> ${text}
+    </td>` +
+    months.map((m, i) => `<td data-month="${i + 1}">${numberFormatter.format(totals[m[0]])}</td>`).join("") +
+    `<td class="trimester-total" style="text-align: right;"><strong>${numberFormatter.format(totalValue)}</strong></td>`;
+
+  // Add the click listener
+  tr.addEventListener("click", () => toggleTitle(tr));
+  
+  return tr;
+}
+
+function toggleTitle(titleRowNode) {
+  let row = titleRowNode.nextElementSibling;
+  const isCollapsed = titleRowNode.classList.toggle("collapsed");
+
+  // Loop forward until we hit a sum-row (TOTAL_LABELS) or the next title-row
+  while (row && !row.classList.contains("title-row") && !row.classList.contains("sum-row")) {
+    
+    if (row.classList.contains("topic-row")) {
+      row.style.display = isCollapsed ? "none" : "";
+    } else if (row.classList.contains("category-row")) {
+      // If the title is expanding, we only show the category if its parent topic is ALSO expanded
+      if (isCollapsed) {
+        row.style.display = "none";
+      } else {
+        let prevTopic = row.previousElementSibling;
+        while (prevTopic && !prevTopic.classList.contains("topic-row")) {
+          prevTopic = prevTopic.previousElementSibling;
+        }
+        const topicIsCollapsed = prevTopic ? prevTopic.classList.contains("collapsed") : true;
+        row.style.display = topicIsCollapsed ? "none" : "";
       }
+    }
+    row = row.nextElementSibling;
+  }
+
+  const icon = titleRowNode.querySelector(".title-toggle");
+  if (icon) icon.textContent = isCollapsed ? "▶" : "▼";
+}
+
+function toggleCategories(topicRow) {
+  let row = topicRow.nextElementSibling;
+  const isCollapsed = topicRow.classList.toggle("collapsed");
+
+  // SAFTEY CHECK ADDED: Stop if it hits a title or sum row
+  while (row && !row.classList.contains("topic-row") && !row.classList.contains("title-row") && !row.classList.contains("sum-row")) {
+    if (row.classList.contains("category-row")) {
+      row.style.display = isCollapsed ? "none" : "";
+    }
+    row = row.nextElementSibling;
+  }
+  
+  const icon = topicRow.querySelector(".topic-toggle");
+  if (icon) icon.textContent = isCollapsed ? "▶" : "▼";
+}
 
 
       function topicRow(name, totals) {
         const tr = document.createElement("tr");
         tr.className = "topic-row collapsed";
         
-        const showTotalCol = activeMonths.length < 12;
         const totalValue = getActiveTotal(totals);
 
         tr.innerHTML = `<td>
@@ -522,7 +989,7 @@
           ${name}
           </td>` +
           months.map((m, i) => `<td data-month="${i + 1}">${numberFormatter.format(totals[m[0]])}</td>`).join("") +
-          (showTotalCol ? `<td class="trimester-total" style="text-align: right;"><strong>${numberFormatter.format(totalValue)}</strong></td>` : '');
+          `<td class="trimester-total" style="text-align: right;"><strong>${numberFormatter.format(totalValue)}</strong></td>`;
 
         tr.addEventListener("click", () => toggleCategories(tr));
         return tr;
@@ -532,12 +999,11 @@
         const tr = document.createElement("tr");
         tr.className = "category-row";
 
-        const showTotalCol = activeMonths.length < 12;
         const totalValue = getActiveTotal(r); // 'r' holds the db row with properties like jan, fev
 
         tr.innerHTML = `<td>${r.category_name}</td>` +
           months.map((m, i) => `<td data-month="${i + 1}">${numberFormatter.format(r[m[0]])}</td>`).join("") +
-          (showTotalCol ? `<td class="trimester-total" style="text-align: right;">${numberFormatter.format(totalValue)}</td>` : '');
+          `<td class="trimester-total" style="text-align: right;">${numberFormatter.format(totalValue)}</td>`;
           
         return tr;
       }
@@ -556,18 +1022,74 @@
         clickedButton.classList.add('active');
       }
 
-      //Submit
+      /* ---------- UPLOAD & RATEIO LOGIC ---------- */
+
+      // 1. Logic to hide/show the second file input based on radio choice
+      const radioButtons = document.querySelectorAll('input[name="uploadType"]');
+      const file2Container = document.getElementById("file2Container");
+      const file2Input = document.getElementById("file2Input");
+
+      radioButtons.forEach(radio => {
+        radio.addEventListener('change', (e) => {
+          if (e.target.value === 'rateio') {
+            file2Container.style.display = 'none';
+            file2Input.value = ''; // Clear file if they selected one
+          } else {
+            file2Container.style.display = 'block'; 
+          }
+        });
+      });
+
+      // 2. Form Submit Logic
       document.getElementById("uploadForm").addEventListener("submit", async (e) => {
         e.preventDefault();
 
         const formData = new FormData(e.target);
+        const selectedMonth = formData.get('month');
+        const uploadType = formData.get('uploadType');
 
-        const res = await fetch("/api/upload-transacoes", {
-          method: "POST",
-          body: formData
-        });
+        // Basic validation: Rateio needs exactly 1 file, Direto needs 2
+        const files = formData.getAll('files').filter(f => f.name !== "");
+        if (uploadType === "direto" && files.length < 2) {
+          alert("Para Lançamento Direto, por favor selecione os dois arquivos XLS.");
+          return;
+        }
 
-        alert(await res.text());
+        try {
+          const res = await fetch("/api/upload-transacoes", {
+            method: "POST",
+            body: formData
+          });
+
+          if (!res.ok) {
+            alert("Erro: " + await res.text());
+            return;
+          }
+
+          // Branch logic based on the user's choice
+          if (uploadType === "rateio") {
+            // Handle File Download
+            const blob = await res.blob();
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.style.display = "none";
+            a.href = downloadUrl;
+            a.download = `Rateio_Processado_${selectedMonth}.xlsx`; 
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(downloadUrl);
+            a.remove();
+            
+            alert("Rateio gerado e baixado com sucesso!");
+          } else {
+            // Handle standard Database Upload
+            alert(await res.text());
+          }
+
+        } catch (err) {
+          console.error("Erro no upload:", err);
+          alert("Ocorreu um erro ao comunicar com o servidor.");
+        }
       });
 
       function hideAllMonths() {
@@ -640,6 +1162,7 @@
         .addEventListener("change", () => {
           loadMonthlyProfit();
           loadYearlyOverview();
+          loadClientHours();
         });
 
       document.getElementById("ownerSelect")
@@ -648,6 +1171,7 @@
           loadAccounts();
           loadMonthlyProfit();
           loadYearlyOverview();
+          loadClientHours();
         });
 
       (async () => {

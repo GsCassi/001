@@ -17,6 +17,71 @@
   margin-bottom: 20px;
 }
 
+/*--------- Chart pop-up -------*/
+
+/* Modal Overlay */
+.modal {
+  display: none; /* Hidden by default */
+  position: fixed;
+  z-index: 1000;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(15, 23, 42, 0.6); /* Dark semi-transparent background */
+  backdrop-filter: blur(3px); /* Optional: blurs the background slightly */
+  align-items: center;
+  justify-content: center;
+}
+
+/* Modal Content Box */
+.modal-content {
+  background-color: #ffffff;
+  padding: 25px 30px;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 550px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+  position: relative;
+  animation: modalFadeIn 0.3s ease;
+}
+
+@keyframes modalFadeIn {
+  from { opacity: 0; transform: translateY(-20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Close Button */
+.close-btn {
+  position: absolute;
+  top: 15px;
+  right: 20px;
+  font-size: 28px;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: color 0.2s;
+  line-height: 1;
+}
+
+.close-btn:hover {
+  color: #be192f;
+}
+
+/* Make the summary metrics look clickable */
+.clickable-metric span {
+  color: #3f51b5;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 4px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: color 0.2s;
+}
+
+.clickable-metric span:hover {
+  color: #2e40e2;
+}
+
 /* ---------- Login -----------*/
 
 #f {
@@ -110,6 +175,7 @@
 }
 
 .main-title {
+  text-align: left;
   font-size: 24px;
   font-weight: 700;
   color: #1e293b;
@@ -396,6 +462,11 @@ td:first-child {
   color: #444;
 }
 
+/* Add cursor pointer to title row */
+.title-row {
+  cursor: pointer;
+}
+
 .title-row td {
   font-weight: 700;
   background-color: rgb(245, 245, 245); /* Remove the grey background from before */
@@ -403,6 +474,15 @@ td:first-child {
   text-transform: uppercase;
   border-top: none; 
   padding-top: 24px; /* Space before a new section */
+}
+
+/* Style the new title toggle arrow */
+.title-toggle {
+  display: inline-block;
+  width: 16px;
+  margin-right: 6px;
+  color: #0f172a;
+  font-weight: bold;
 }
 
 .sum-row td {
