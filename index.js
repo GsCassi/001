@@ -210,44 +210,22 @@ app.post(
       const pgClient = await pool.connect();
       try {
 
-        // STEP 1: FETCH OH HEADCOUNT (PostgreSQL)
-
-        const ohRes = await pgClient.query(`
-          SELECT u.id, c.ccusto
-          FROM usuarios_oh u
-          JOIN centro_de_custo c ON u.id_centro_custo = c.id
-          WHERE u.ativo = true
-        `);
-        
-        const ohActiveUsers = [];
-        const ohDefaultCcusto = {}; 
-        
-        // FUTURE-PROOFING: Placeholder for when OH users start logging hours
-        const ohDistribution = {}; 
-        
-        ohRes.rows.forEach(row => {
-          ohActiveUsers.push(row.id);
-          ohDefaultCcusto[row.id] = row.ccusto;
-        });
-        
-        const ohHeadcount = ohActiveUsers.length;
-        console.log(`OH Headcount ativo (PostgreSQL): ${ohHeadcount}`);
-
-        // STEP 2: FETCH TD/OM HEADCOUNT (MySQL)
-        const [myUsersRes] = await mysqlPool.execute(`
-          SELECT id 
+        // ---------------------------------------------------------
+        // STEP 1: FETCH ALL ACTIVE HEADCOUNT (MySQL Unificado)
+        // ---------------------------------------------------------
+        // Notice we are now fetching U_CC_Padrao and U_Folha_Ponto right here!
+        const [activeUsersRes] = await mysqlPool.execute(`
+          SELECT id, U_CC_Padrao, U_Folha_Ponto 
           FROM adminis.usuarios 
-          WHERE ativo = 1 
-          AND U_CC_Padrao = '00011003OH'
+          WHERE ativo = 1
         `);
 
+        const totalHeadcount = activeUsersRes.length;
+        console.log(`Total Headcount ativo (MySQL unificado): ${totalHeadcount}`);
 
-        const tdActiveUsers = myUsersRes.map(u => u.id);
-        const tdHeadcount = tdActiveUsers.length;
-
-        console.log(`Headcount ativo (ativo=1 & U_CC_Padrao='00011003OH'): ${tdHeadcount}`);
-
-        // STEP 3: FETCH TD/OM TIMESHEETS (MySQL)
+        // ---------------------------------------------------------
+        // STEP 2: FETCH TIMESHEETS (MySQL)
+        // ---------------------------------------------------------
         const [timesheetRes] = await mysqlPool.execute(`
           SELECT 
               u.id AS id_usuario,
@@ -260,43 +238,39 @@ app.post(
           GROUP BY u.id, c.Ct_Centro_Custo
         `, [year, monthNum]);
 
-        const tdDistribution = {};
+        const userDistribution = {};
         
         timesheetRes.forEach(row => {
           const userId = row.id_usuario;
           const hours = Number(row.horas_trabalhadas);
           
-          if (!tdDistribution[userId]) {
-            tdDistribution[userId] = { totalHours: 0, allocations: {} };
+          if (!userDistribution[userId]) {
+            userDistribution[userId] = { totalHours: 0, allocations: {} };
           }
           
-          tdDistribution[userId].totalHours += hours;
-          tdDistribution[userId].allocations[row.ccusto] = hours;
+          userDistribution[userId].totalHours += hours;
+          userDistribution[userId].allocations[row.ccusto] = hours;
         });
 
-        // STEP 4: THE APPORTIONMENT MATH
-        const totalHeadcount = ohHeadcount + tdHeadcount;
-        
+        // ---------------------------------------------------------
+        // STEP 3: THE APPORTIONMENT MATH (Unified)
+        // ---------------------------------------------------------
         if (totalHeadcount === 0) {
           return res.status(400).send("Nenhum funcionário ativo encontrado no sistema.");
         }
 
-        // We only parse the first file for the rateio
         const inputRows = parseXls(files[0].buffer);
         const finalOutputRows = [];
 
         for (const row of inputRows) {
-          // DEBUG: This will print the raw row data in your Node.js terminal
-          // Look at this log to see the EXACT names of your columns!
           console.log("Linha lida do Excel:", row);
 
-          // Use the exact names from your console.log here if they differ
           const historico = row["Historico"] || row["Histórico"]; 
           const debitoOH = row["Débito OH"];
           const debitoTDOM = row["Débito TD/OM"];
           const credito = row["Credito"] || row["Crédito"];
 
-          // Using our new robust parser
+          // parseCurrency is safely doing its job right here!
           const entradaValor = parseCurrency(row["Entrada de Valor"]);
 
           if (entradaValor === 0) {
@@ -317,27 +291,28 @@ app.post(
             rowAllocations[key] = (rowAllocations[key] || 0) + amount;
           };
 
-          // 4A: OH Employees
-          /* PREVIOUS LOGIC. DOESN'T CHECK FOR HOURS ON OH EMPLOYEES
-          for (const [ccusto, count] of Object.entries(ohDistribution)) {
-            const valor = count * perCapita;
-            addAllocation(debitoOH, ccusto, valor);
-          }
-          */
+          // ---------------------------------------------------------
+          // 4: THE MERGED LOOP - Iterate through all active users
+          // ---------------------------------------------------------
+          for (const user of activeUsersRes) {
+            const userId = user.id;
+            
+            // Get their default cost center, fallback to 1003OH if missing
+            const defaultCcusto = user.U_CC_Padrao || "00011003OH"; 
+            
+            // Check the new flag! (Using == 1 in case MySQL returns tinyint as a number or boolean)
+            const isTimesheetUser = (user.U_Folha_Ponto == 1); 
+            
+            const userTimesheet = userDistribution[userId];
 
-          // 4A: OH Employees (Symmetrical Logic)
-          for (const userId of ohActiveUsers) {
-            const userTimesheet = ohDistribution[userId];
-            const defaultCcusto = ohDefaultCcusto[userId];
-
-            // If the business rules change and this OH user logged hours:
-            if (userTimesheet && userTimesheet.totalHours > 0) {
+            // If they are required to submit hours AND they logged more than 0 hours:
+            if (isTimesheetUser && userTimesheet && userTimesheet.totalHours > 0) {
               
               for (const [ccusto, hours] of Object.entries(userTimesheet.allocations)) {
                 const proportion = hours / userTimesheet.totalHours;
                 const valor = perCapita * proportion;
                 
-                // Keep the smart check in case an OH employee logs hours to a TD/OM project
+                // Check if the specific project they worked on is an OH center
                 const isOH = ccusto.toUpperCase().endsWith("OH");
                 const currentDebito = isOH ? debitoOH : debitoTDOM;
                 
@@ -345,27 +320,13 @@ app.post(
               }
               
             } else {
-              // CURRENT BEHAVIOR: No hours logged, allocate 100% to their default OH cost center
-              addAllocation(debitoOH, defaultCcusto, perCapita);
-            }
-          }
-          // 4B: TD/OM Employees
-          for (const userId of tdActiveUsers) {
-            const userTimesheet = tdDistribution[userId];
-
-            if (userTimesheet && userTimesheet.totalHours > 0) {
-              for (const [ccusto, hours] of Object.entries(userTimesheet.allocations)) {
-                const proportion = hours / userTimesheet.totalHours;
-                const valor = perCapita * proportion;
-
-                const isOH = ccusto.toUpperCase().endsWith("OH");
-                const currentDebito = isOH ? debitoOH : debitoTDOM;
-                addAllocation(currentDebito, ccusto, valor);
-              }
-            } else {
-              //addAllocation(debitoTDOM, "SEM_ALOCACAO", perCapita);
-              //addAllocation(debitoTDOM, "1003OH", perCapita);
-              addAllocation(debitoOH, "00011003OH", perCapita);
+              // If they DON'T submit hours (U_Folha_Ponto = 0) OR they submitted 0 hours:
+              // Drop their entire slice into their U_CC_Padrao
+              
+              const isOH = defaultCcusto.toUpperCase().endsWith("OH");
+              const currentDebito = isOH ? debitoOH : debitoTDOM;
+              
+              addAllocation(currentDebito, defaultCcusto, perCapita);
             }
           }
 
