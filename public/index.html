@@ -131,6 +131,29 @@
       </div>
     </div>
 
+    <!-- Edit Transaction Modal -->
+    <div id="editTransactionModal" class="modal" onclick="closeEditModalOnOutsideClick(event)">
+      <div class="modal-content" style="max-width: 700px;">
+        <span class="close-btn" onclick="closeEditModal()">&times;</span>
+        <h3 id="editModalTitle" style="margin-top: 0; color: #1e293b;">Editar Transações</h3>
+        <div style="overflow-y: auto; max-height: 400px; margin-top: 15px;">
+          <table style="width: 100%; text-align: left;">
+            <thead>
+              <tr>
+                <th>Descrição</th>
+                <th style="text-align: left;">Débito (R$)</th>
+                <th style="text-align: left;">Crédito (R$)</th>
+                <th style="text-align: center;">Ação</th>
+              </tr>
+            </thead>
+            <tbody id="editTransactionBody">
+              <!-- Rows will be populated via JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     <script>
 
       async function checkAuth() {
@@ -141,10 +164,13 @@
       }
 
       function initRoleUI(user) {
-        if (user.role !== "admin") {
+        isAdmin = user.role === "admin"; // Store this globally
+        if (!isAdmin) {
           document.querySelector(".upload-card").style.display = "none";
         }
       }
+
+      let isAdmin = false;
 
       const TOTAL_LABELS = {
         T1: "RECEITA LÍQUIDA",
@@ -537,6 +563,98 @@
         }
       }
 
+async function openEditModal(year, month, categoryId, categoryName) {
+        const account = document.getElementById("accountSelect").value;
+        if (!account) {
+          alert("Por favor, selecione uma conta específica para editar transações.");
+          return;
+        }
+
+        const modalTitle = document.getElementById("editModalTitle");
+        modalTitle.innerText = `Editando: ${categoryName} (${month.toString().padStart(2, '0')}/${year})`;
+        
+        const tbody = document.getElementById("editTransactionBody");
+        tbody.innerHTML = "<tr><td colspan='4'>Carregando...</td></tr>";
+        
+        document.getElementById("editTransactionModal").style.display = "flex";
+
+        try {
+          const res = await fetch(`/api/transaction-details?year=${year}&month=${month}&ccusto=${account}&categoryId=${categoryId}`);
+          const rows = await res.json();
+
+          if (rows.length === 0) {
+            tbody.innerHTML = "<tr><td colspan='4'>Nenhum lançamento encontrado.</td></tr>";
+            return;
+          }
+
+          tbody.innerHTML = "";
+          rows.forEach(row => {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+              <td style="font-size: 12px; color: #475569;">${row.descricao || row.codigo}</td>
+              <td><input type="number" id="debito_${row.id}" class="edit-input" value="${row.debito}" step="0.01"></td>
+              <td><input type="number" id="credito_${row.id}" class="edit-input" value="${row.credito}" step="0.01"></td>
+              <td style="text-align: center;">
+                <button class="btn-save" onclick="saveTransaction(${row.id}, this)">Salvar</button>
+              </td>
+            `;
+            tbody.appendChild(tr);
+          });
+        } catch (err) {
+          tbody.innerHTML = "<tr><td colspan='4'>Erro ao carregar dados.</td></tr>";
+        }
+      }
+
+      async function saveTransaction(id, btnElement) {
+        const debito = document.getElementById(`debito_${id}`).value;
+        const credito = document.getElementById(`credito_${id}`).value;
+        
+        const originalText = btnElement.innerText;
+        btnElement.innerText = "...";
+        btnElement.disabled = true;
+
+        try {
+          const res = await fetch("/api/update-transaction", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id, debito, credito })
+          });
+
+          if (res.ok) {
+            btnElement.innerText = "Salvo!";
+            btnElement.style.backgroundColor = "#4caf50";
+            
+            // Reload the underlying dashboard data after a second
+            setTimeout(() => {
+              btnElement.innerText = originalText;
+              btnElement.style.backgroundColor = "";
+              btnElement.disabled = false;
+              loadMonthlyProfit(); // Refresh the table behind the modal
+              loadYearlyOverview();
+            }, 1000);
+          } else {
+            alert("Erro ao salvar");
+            btnElement.innerText = originalText;
+            btnElement.disabled = false;
+          }
+        } catch (err) {
+          alert("Erro de comunicação com o servidor.");
+          btnElement.innerText = originalText;
+          btnElement.disabled = false;
+        }
+      }
+
+      function closeEditModal() {
+        document.getElementById("editTransactionModal").style.display = "none";
+      }
+
+      function closeEditModalOnOutsideClick(event) {
+        const modal = document.getElementById("editTransactionModal");
+        if (event.target === modal) {
+          closeEditModal();
+        }
+      }
+
 
 function renderYearlyOverview({ years, data }) {
   const container = document.getElementById("yearlyOverview");
@@ -870,7 +988,7 @@ function renderYears(data) {
 
         // ===== CATEGORIES =====
         obj.categories.forEach(c => {
-          const row = categoryRow(c);
+          const row = categoryRow(c, year);
           row.style.display = "none";
           tbody.appendChild(row);
         });
@@ -995,15 +1113,31 @@ function toggleCategories(topicRow) {
         return tr;
       }
 
-      function categoryRow(r) {
+      function categoryRow(r, year) {
         const tr = document.createElement("tr");
         tr.className = "category-row";
 
-        const totalValue = getActiveTotal(r); // 'r' holds the db row with properties like jan, fev
+        const totalValue = getActiveTotal(r);
 
-        tr.innerHTML = `<td>${r.category_name}</td>` +
-          months.map((m, i) => `<td data-month="${i + 1}">${numberFormatter.format(r[m[0]])}</td>`).join("") +
-          `<td class="trimester-total" style="text-align: right;">${numberFormatter.format(totalValue)}</td>`;
+        let html = `<td>${r.category_name}</td>`;
+        
+        months.forEach((m, i) => {
+          const monthNum = i + 1;
+          const val = r[m[0]] || 0;
+          let cellClass = "";
+          let onClick = "";
+          
+          // Only make it clickable if it's an admin, there is a value, and we have a category ID
+          if (isAdmin && val !== 0 && r.id) {
+            cellClass = "clickable-cell";
+            onClick = `onclick="openEditModal(${year}, ${monthNum}, ${r.id}, '${r.category_name}')"`;
+          }
+          
+          html += `<td data-month="${monthNum}" class="${cellClass}" ${onClick}>${numberFormatter.format(val)}</td>`;
+        });
+
+        html += `<td class="trimester-total" style="text-align: right;">${numberFormatter.format(totalValue)}</td>`;
+        tr.innerHTML = html;
           
         return tr;
       }

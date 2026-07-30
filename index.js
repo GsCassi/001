@@ -934,6 +934,64 @@ app.get("/api/categories-profit", async (req, res) => {
   }
 });
 */
+// ---------------------------------------------------------
+// GET: Fetch specific transaction details for editing
+// ---------------------------------------------------------
+app.get("/api/transaction-details", requireAuth, async (req, res) => {
+  const { year, month, ccusto, categoryId } = req.query;
+
+  // We only allow admins to view this granular edit data
+  if (req.session.user.role !== "admin") {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+
+  try {
+    const query = `
+      SELECT t.id, t.codigo, t.descricao, t.debito, t.credito, t.mes
+      FROM transacoes t
+      JOIN codigos co ON t.codigo = co.codigo
+      WHERE EXTRACT(YEAR FROM t.mes) = $1
+        AND EXTRACT(MONTH FROM t.mes) = $2
+        AND RIGHT(t.ccusto, 6) = $3
+        AND co.id_da_categoria = $4
+      ORDER BY t.id ASC
+    `;
+    
+    const { rows } = await pool.query(query, [year, month, ccusto, categoryId]);
+    res.json(rows);
+  } catch (err) {
+    console.error("Error fetching transaction details:", err);
+    res.status(500).send("Erro ao buscar detalhes da transação");
+  }
+});
+
+// ---------------------------------------------------------
+// PUT: Update the transaction values
+// ---------------------------------------------------------
+app.put("/api/update-transaction", requireAuth, requireRole("admin"), async (req, res) => {
+  const { id, debito, credito } = req.body;
+
+  if (!id) {
+    return res.status(400).send("ID da transação não fornecido");
+  }
+
+  try {
+    await pool.query(
+      `UPDATE transacoes 
+       SET debito = $1, credito = $2 
+       WHERE id = $3`,
+      [Number(debito) || 0, Number(credito) || 0, id]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error updating transaction:", err);
+    res.status(500).send("Erro ao atualizar transação");
+  }
+});
+
+
+
 app.get("/api/client-hours-periods", requireAuth, async (req, res) => {
   const account = req.query.account;
   if (!account) return res.json([]);
