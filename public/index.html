@@ -563,7 +563,7 @@
         }
       }
 
-async function openEditModal(year, month, categoryId, categoryName) {
+      async function openEditModal(year, month, categoryId, categoryName) {
         const account = document.getElementById("accountSelect").value;
         if (!account) {
           alert("Por favor, selecione uma conta específica para editar transações.");
@@ -579,29 +579,60 @@ async function openEditModal(year, month, categoryId, categoryName) {
         document.getElementById("editTransactionModal").style.display = "flex";
 
         try {
-          const res = await fetch(`/api/transaction-details?year=${year}&month=${month}&ccusto=${account}&categoryId=${categoryId}`);
-          const rows = await res.json();
+          const url = `/api/transaction-details?year=${year}&month=${month}&ccusto=${encodeURIComponent(account)}&categoryId=${categoryId}`;
+          const res = await fetch(url);
+          
+          if (!res.ok) throw new Error("Erro na resposta do servidor.");
+
+          const data = await res.json();
+          // Extract the data sent from our updated GET route
+          const rows = data.transactions;
+          const suggestedCcusto = data.suggestedCcusto;
+          
+          tbody.innerHTML = ""; 
+
+          const safeCategoryName = categoryName.replace(/'/g, "\\'");
 
           if (rows.length === 0) {
-            tbody.innerHTML = "<tr><td colspan='4'>Nenhum lançamento encontrado.</td></tr>";
-            return;
+            const emptyTr = document.createElement("tr");
+            emptyTr.innerHTML = "<td colspan='4' style='text-align: center; font-style: italic; color: #94a3b8;'>Nenhuma transação encontrada.</td>";
+            tbody.appendChild(emptyTr);
+          } else {
+            rows.forEach(row => {
+              const tr = document.createElement("tr");
+              tr.innerHTML = `
+                <td style="font-size: 12px; color: #475569;">${row.descricao || row.codigo}</td>
+                <td><input type="number" id="debito_${row.id}" class="edit-input" value="${row.debito}" step="0.01"></td>
+                <td><input type="number" id="credito_${row.id}" class="edit-input" value="${row.credito}" step="0.01"></td>
+                <td style="text-align: center; white-space: nowrap;">
+                  <button class="btn-save" onclick="saveTransaction(${row.id}, this)">Salvar</button>
+                  <button class="btn-save" style="background-color: #be192f; margin-left: 5px;" onclick="deleteTransaction(${row.id}, this, ${year}, ${month}, ${categoryId}, '${safeCategoryName}')">Excluir</button>
+                </td>
+              `;
+              tbody.appendChild(tr);
+            });
           }
+          
+          const addTr = document.createElement("tr");
+          addTr.style.backgroundColor = "#f8fafc"; 
+          addTr.innerHTML = `
+            <td style="font-size: 12px; color: #475569;">
+              <div style="font-weight: bold; margin-bottom: 5px;">[Novo Lançamento]</div>
+              <!-- Added the editable cost center input here -->
+              <input type="text" id="new_ccusto" class="edit-input" value="${suggestedCcusto}" style="width: 100%; font-size: 11px; text-transform: uppercase;" title="Centro de Custo (10 dígitos)">
+            </td>
+            <td style="vertical-align: bottom;"><input type="number" id="new_debito" class="edit-input" value="0" step="0.01"></td>
+            <td style="vertical-align: bottom;"><input type="number" id="new_credito" class="edit-input" value="0" step="0.01"></td>
+            <td style="text-align: center; vertical-align: bottom;">
+              <button class="btn-save" style="background-color: #34a853;" onclick="addNewTransaction(${year}, ${month}, ${categoryId}, '${safeCategoryName}', this)">Adicionar</button>
+            </td>
+          `;
+          tbody.appendChild(addTr);
 
-          tbody.innerHTML = "";
-          rows.forEach(row => {
-            const tr = document.createElement("tr");
-            tr.innerHTML = `
-              <td style="font-size: 12px; color: #475569;">${row.descricao || row.codigo}</td>
-              <td><input type="number" id="debito_${row.id}" class="edit-input" value="${row.debito}" step="0.01"></td>
-              <td><input type="number" id="credito_${row.id}" class="edit-input" value="${row.credito}" step="0.01"></td>
-              <td style="text-align: center;">
-                <button class="btn-save" onclick="saveTransaction(${row.id}, this)">Salvar</button>
-              </td>
-            `;
-            tbody.appendChild(tr);
-          });
         } catch (err) {
-          tbody.innerHTML = "<tr><td colspan='4'>Erro ao carregar dados.</td></tr>";
+          console.error("Erro no modal:", err);
+          // Replaces "Carregando..." with a visible error if something goes wrong
+          tbody.innerHTML = `<tr><td colspan='4' style='color: red; text-align: center;'>Erro ao carregar dados. Verifique o console (F12).</td></tr>`;
         }
       }
 
@@ -643,6 +674,95 @@ async function openEditModal(year, month, categoryId, categoryName) {
           btnElement.disabled = false;
         }
       }
+
+      async function deleteTransaction(id, btnElement, year, month, categoryId, categoryName) {
+        // Safety check to prevent accidental clicks
+        if (!confirm("Tem certeza que deseja excluir este lançamento? Esta ação não pode ser desfeita.")) {
+          return;
+        }
+
+        const originalText = btnElement.innerText;
+        btnElement.innerText = "...";
+        btnElement.disabled = true;
+
+        try {
+          const res = await fetch("/api/delete-transaction", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: id })
+          });
+
+          if (res.ok) {
+            btnElement.innerText = "Excluído!";
+            
+            // Wait briefly, then refresh the dashboard and the modal
+            setTimeout(() => {
+              loadMonthlyProfit();
+              loadYearlyOverview();
+              openEditModal(year, month, categoryId, categoryName);
+            }, 800);
+          } else {
+            alert("Erro ao excluir transação.");
+            btnElement.innerText = originalText;
+            btnElement.disabled = false;
+          }
+        } catch (err) {
+          alert("Erro de comunicação com o servidor.");
+          btnElement.innerText = originalText;
+          btnElement.disabled = false;
+        }
+      }
+
+
+      async function addNewTransaction(year, month, categoryId, categoryName, btnElement) {
+        // Read the 10-digit cost center typed by the admin
+        const fullCcusto = document.getElementById("new_ccusto").value;
+        const debito = document.getElementById("new_debito").value;
+        const credito = document.getElementById("new_credito").value;
+        
+        const originalText = btnElement.innerText;
+        btnElement.innerText = "...";
+        btnElement.disabled = true;
+
+        try {
+          const res = await fetch("/api/add-transaction", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ 
+              year: year, 
+              month: month, 
+              fullCcusto: fullCcusto, // Sent explicitly to the backend
+              categoryId: categoryId, 
+              categoryName: categoryName,
+              debito: debito, 
+              credito: credito 
+            })
+          });
+
+          if (res.ok) {
+            btnElement.innerText = "Adicionado!";
+            
+            // Wait a second for visual feedback, then refresh everything
+            setTimeout(() => {
+              loadMonthlyProfit(); // Refreshes dashboard data
+              loadYearlyOverview();
+              
+              // Re-open the modal with fresh data so the admin sees the newly added row
+              openEditModal(year, month, categoryId, categoryName);
+            }, 1000);
+          } else {
+            alert("Erro ao adicionar transação.");
+            btnElement.innerText = originalText;
+            btnElement.disabled = false;
+          }
+        } catch (err) {
+          alert("Erro de comunicação com o servidor.");
+          btnElement.innerText = originalText;
+          btnElement.disabled = false;
+        }
+      }
+
+
 
       function closeEditModal() {
         document.getElementById("editTransactionModal").style.display = "none";
@@ -1127,8 +1247,8 @@ function toggleCategories(topicRow) {
           let cellClass = "";
           let onClick = "";
           
-          // Only make it clickable if it's an admin, there is a value, and we have a category ID
-          if (isAdmin && val !== 0 && r.id) {
+          // Only make it clickable if it's an admin, and we have a category ID
+          if (isAdmin && r.id) {
             cellClass = "clickable-cell";
             onClick = `onclick="openEditModal(${year}, ${monthNum}, ${r.id}, '${r.category_name}')"`;
           }

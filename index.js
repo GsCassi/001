@@ -940,14 +940,13 @@ app.get("/api/categories-profit", async (req, res) => {
 app.get("/api/transaction-details", requireAuth, async (req, res) => {
   const { year, month, ccusto, categoryId } = req.query;
 
-  // We only allow admins to view this granular edit data
   if (req.session.user.role !== "admin") {
     return res.status(403).json({ error: "Forbidden" });
   }
 
   try {
     const query = `
-      SELECT t.id, t.codigo, t.descricao, t.debito, t.credito, t.mes
+      SELECT t.id, t.codigo, t.descricao, t.debito, t.credito, t.mes, t.ccusto
       FROM transacoes t
       JOIN codigos co ON t.codigo = co.codigo
       WHERE EXTRACT(YEAR FROM t.mes) = $1
@@ -958,7 +957,26 @@ app.get("/api/transaction-details", requireAuth, async (req, res) => {
     `;
     
     const { rows } = await pool.query(query, [year, month, ccusto, categoryId]);
-    res.json(rows);
+
+    // 2. Logic to figure out the default 10-digit CC to show the admin
+    let suggestedCcusto = ccusto; // Fallback to 6 digits just in case
+    
+    if (rows.length > 0 && rows[0].ccusto) {
+      // If there are existing rows, grab the 10 digits from the first one
+      suggestedCcusto = rows[0].ccusto;
+    } else {
+      // If this is a R$ 0 cell (no existing rows), fetch the baseline 10 digits from MySQL
+      const [ccRes] = await mysqlPool.execute(
+        "SELECT Ct_Centro_Custo FROM adminis.contrato WHERE RIGHT(Ct_Centro_Custo, 6) = ? AND Ct_Centro_Custo IS NOT NULL LIMIT 1",
+        [ccusto]
+      );
+      if (ccRes.length > 0 && ccRes[0].Ct_Centro_Custo) {
+        suggestedCcusto = ccRes[0].Ct_Centro_Custo;
+      }
+    }
+
+    // 3. Return both the rows AND the suggested cost center
+    res.json({ transactions: rows, suggestedCcusto: suggestedCcusto });
   } catch (err) {
     console.error("Error fetching transaction details:", err);
     res.status(500).send("Erro ao buscar detalhes da transação");
@@ -987,6 +1005,70 @@ app.put("/api/update-transaction", requireAuth, requireRole("admin"), async (req
   } catch (err) {
     console.error("Error updating transaction:", err);
     res.status(500).send("Erro ao atualizar transação");
+  }
+});
+
+
+// ---------------------------------------------------------
+// POST: Add a new transaction manually
+// ---------------------------------------------------------
+app.post("/api/add-transaction", requireAuth, requireRole("admin"), async (req, res) => {
+  // Notice we are now receiving 'fullCcusto' directly from the frontend
+  const { year, month, fullCcusto, categoryId, categoryName, debito, credito } = req.body;
+
+  try {
+    const codeRes = await pool.query(
+      "SELECT codigo FROM codigos WHERE id_da_categoria = $1 LIMIT 1",
+      [categoryId]
+    );
+
+    if (codeRes.rows.length === 0) {
+      return res.status(400).send("Categoria sem código associado.");
+    }
+
+    const defaultCodigo = codeRes.rows[0].codigo;
+
+    // Fetch the correct 'descricao' 
+    const descRes = await pool.query(
+      "SELECT descricao FROM transacoes WHERE codigo = $1 AND descricao IS NOT NULL LIMIT 1",
+      [defaultCodigo]
+    );
+    const descricao = descRes.rows.length > 0 ? descRes.rows[0].descricao : categoryName;
+    
+    const mesDate = `${year}-${String(month).padStart(2, '0')}-01`;
+
+    // Insert using the explicitly provided fullCcusto
+    await pool.query(
+      `INSERT INTO transacoes (codigo, descricao, ccusto, debito, credito, mes)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [defaultCodigo, descricao, fullCcusto, Number(debito) || 0, Number(credito) || 0, mesDate]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Erro ao adicionar transação:", err);
+    res.status(500).send("Erro interno ao adicionar transação");
+  }
+});
+
+
+// ---------------------------------------------------------
+// DELETE: Remove a transaction
+// ---------------------------------------------------------
+app.delete("/api/delete-transaction", requireAuth, requireRole("admin"), async (req, res) => {
+  const { id } = req.body;
+
+  if (!id) {
+    return res.status(400).send("ID da transação não fornecido");
+  }
+
+  try {
+    // Safely delete only the specific row matching the ID
+    await pool.query("DELETE FROM transacoes WHERE id = $1", [id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error deleting transaction:", err);
+    res.status(500).send("Erro ao deletar transação");
   }
 });
 
