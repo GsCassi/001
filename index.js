@@ -83,12 +83,12 @@ function parseCurrency(value) {
 // Helper to fetch allowed cost centers from MySQL using ONLY the login
 async function getAllowedCostCenters(login) {
   const query = `
-    SELECT DISTINCT RIGHT(c.Ct_Centro_Custo, 6) AS ccusto
-    FROM adminis.contrato c
-    JOIN adminis.usuarios u ON c.id_usuario = u.id
-    WHERE u.U_Login = ?
-      AND c.Ct_Centro_Custo IS NOT NULL
-      AND c.Ct_Dt_Inicio >= '${MIN_DATE_FILTER}'
+    SELECT DISTINCT RIGHT(p.centroCusto, 6) AS ccusto
+    FROM adminis.projetosaht p
+    JOIN adminis.usuarioaht u ON p.idGerente = u.id
+    WHERE u.login = ?
+      AND p.centroCusto IS NOT NULL
+      AND p.dataInicio >= '${MIN_DATE_FILTER}'
   `;
   const [rows] = await mysqlPool.execute(query, [login]);
   return rows.map(r => r.ccusto);
@@ -211,14 +211,17 @@ app.post(
       try {
 
         // ---------------------------------------------------------
-        // STEP 1: FETCH ALL ACTIVE HEADCOUNT (MySQL Unificado)
+        // STEP 1: FETCH ALL ACTIVE HEADCOUNT (MySQL Unificado - View)
         // ---------------------------------------------------------
         // Notice we are now fetching U_CC_Padrao and U_Folha_Ponto right here!
         const [activeUsersRes] = await mysqlPool.execute(`
-          SELECT id, U_CC_Padrao, U_Folha_Ponto 
-          FROM adminis.usuarios 
-          WHERE ativo = 1
-        `);
+              SELECT 
+                id, 
+                centroCustoPadrao AS U_CC_Padrao, 
+                preencheAHT AS U_Folha_Ponto 
+              FROM adminis.usuarioaht 
+              WHERE ativo = 1
+            `);
 
         const totalHeadcount = activeUsersRes.length;
         console.log(`Total Headcount ativo (MySQL unificado): ${totalHeadcount}`);
@@ -228,14 +231,12 @@ app.post(
         // ---------------------------------------------------------
         const [timesheetRes] = await mysqlPool.execute(`
           SELECT 
-              u.id AS id_usuario,
-              c.Ct_Centro_Custo AS ccusto,
-              SUM(fp.Fo_Hora_Padrao) AS horas_trabalhadas
-          FROM adminis.folha_ponto fp
-          JOIN adminis.contrato c ON fp.id_contrato = c.id
-          JOIN adminis.usuarios u ON fp.id_usuario = u.id 
-          WHERE YEAR(fp.Fo_Data) = ? AND MONTH(fp.Fo_Data) = ?
-          GROUP BY u.id, c.Ct_Centro_Custo
+              idUsuario AS id_usuario,
+              centroCusto AS ccusto,
+              SUM(horasReaisFracao) AS horas_trabalhadas
+          FROM adminis.lancamentosaht
+          WHERE YEAR(data) = ? AND MONTH(data) = ?
+          GROUP BY idUsuario, centroCusto
         `, [year, monthNum]);
 
         const userDistribution = {};
@@ -281,14 +282,21 @@ app.post(
           const perCapita = entradaValor / totalHeadcount;
           const rowAllocations = {}; 
           
-          const addAllocation = (debitoCode, ccusto, amount) => {
+          const addAllocation = (debitoCode, ccusto, amount, userId) => {
             const safeDebito = debitoCode || "N/A";
             const safeCredito = credito || "N/A";
             const safeCcusto = ccusto || "N/A";
             const safeHist = historico || "N/A";
             
             const key = `${safeDebito}|${safeCredito}|${safeCcusto}|${safeHist}`;
-            rowAllocations[key] = (rowAllocations[key] || 0) + amount;
+
+            if (!rowAllocations[key]) {
+              rowAllocations[key] = { amount: 0, uniqueUsers: new Set() };
+            }
+
+            // Add the money and add the person's ID to the count
+            rowAllocations[key].amount += amount;
+            rowAllocations[key].uniqueUsers.add(userId);
           };
 
           // ---------------------------------------------------------
@@ -316,7 +324,7 @@ app.post(
                 const isOH = ccusto.toUpperCase().endsWith("OH");
                 const currentDebito = isOH ? debitoOH : debitoTDOM;
                 
-                addAllocation(currentDebito, ccusto, valor);
+                addAllocation(currentDebito, ccusto, valor, userId);
               }
               
             } else {
@@ -326,12 +334,12 @@ app.post(
               const isOH = defaultCcusto.toUpperCase().endsWith("OH");
               const currentDebito = isOH ? debitoOH : debitoTDOM;
               
-              addAllocation(currentDebito, defaultCcusto, perCapita);
+              addAllocation(currentDebito, defaultCcusto, perCapita, userId);
             }
           }
 
           // Format output rows
-          for (const [key, amount] of Object.entries(rowAllocations)) {
+          for (const [key, data] of Object.entries(rowAllocations)) {
             const [debito, cred, ccusto, hist] = key.split("|");
             
             finalOutputRows.push({
@@ -339,7 +347,8 @@ app.post(
               "Credito": cred,
               "Centro de Custo": ccusto,
               "Historico": hist,
-              "Valor": Number(amount.toFixed(2)) 
+              "Qtd Pessoas": data.uniqueUsers.size,
+              "Valor": Number(data.amount.toFixed(2)) 
             });
           }
         }
@@ -371,6 +380,186 @@ app.post(
     }
   }
 );
+
+
+// ---------------------------------------------------------
+// GET: Fetch programs for the frontend modal
+// ---------------------------------------------------------
+app.get("/api/programas", requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query("SELECT id, nome_programa FROM programas ORDER BY nome_programa");
+    res.json(rows);
+  } catch (err) {
+    console.error("Error fetching programs:", err);
+    res.status(500).send("Erro ao buscar programas");
+  }
+});
+
+// ---------------------------------------------------------
+// RATEIO DE PROGRAMAS (Activity-Based Costing)
+// ---------------------------------------------------------
+app.post("/api/rateio-programas", requireAuth, requireRole("admin"), async (req, res) => {
+  const { month, programas } = req.body;
+
+  if (!month || !programas || programas.length === 0) {
+    return res.status(400).send("Mês ou programas não informados.");
+  }
+
+  const [year, monthNum] = month.split("-");
+  const pgClient = await pool.connect();
+
+  try {
+    // 1. FETCH ALL ACTIVE USERS (MySQL View) 
+    // Now including idOrganograma to match against our rules
+    const [activeUsersRes] = await mysqlPool.execute(`
+      SELECT id, centroCustoPadrao AS U_CC_Padrao, preencheAHT AS U_Folha_Ponto, idOrganograma 
+      FROM adminis.usuarioaht 
+      WHERE ativo = 1
+    `);
+
+    // 2. FETCH TIMESHEETS (MySQL)
+    const [timesheetRes] = await mysqlPool.execute(`
+      SELECT 
+          idUsuario AS id_usuario,
+          centroCusto AS ccusto,
+          SUM(horasReaisFracao) AS horas_trabalhadas
+      FROM adminis.lancamentosaht
+      WHERE YEAR(data) = ? AND MONTH(data) = ?
+      GROUP BY idUsuario, centroCusto
+    `, [year, monthNum]);
+
+    const userDistribution = {};
+    timesheetRes.forEach(row => {
+      const userId = row.id_usuario;
+      const hours = Number(row.horas_trabalhadas);
+      if (!userDistribution[userId]) {
+        userDistribution[userId] = { totalHours: 0, allocations: {} };
+      }
+      userDistribution[userId].totalHours += hours;
+      userDistribution[userId].allocations[row.ccusto] = hours;
+    });
+
+    // 3. FETCH POSTGRESQL MAPPING & TARGETING RULES
+    // Get the Area Classifications
+    const organogramaRes = await pgClient.query(`SELECT id_organograma, classificacao FROM organograma_classes`);
+    const classMap = {};
+    organogramaRes.rows.forEach(r => classMap[r.id_organograma] = r.classificacao);
+
+    // Build the user map and dynamically attach their classification
+    const activeUsersMap = {};
+    activeUsersRes.forEach(u => {
+      u.classificacao = classMap[u.idOrganograma] || 'TD'; // Fallback just in case
+      activeUsersMap[u.id] = u;
+    });
+
+    // Get all assigned targeting rules for the programs
+    const usersLinkRes = await pgClient.query(`SELECT id_programa, id_usuario_mysql FROM programa_usuarios`);
+    const areasLinkRes = await pgClient.query(`SELECT id_programa, id_organograma FROM programa_areas`);
+    const tiposLinkRes = await pgClient.query(`SELECT id_programa, classificacao FROM programa_tipos`);
+
+    // Organize the rules by program ID
+    const progRules = {};
+    programas.forEach(p => {
+      progRules[p.id] = { users: [], areas: [], tipos: [] };
+    });
+
+    usersLinkRes.rows.forEach(row => { if(progRules[row.id_programa]) progRules[row.id_programa].users.push(row.id_usuario_mysql); });
+    areasLinkRes.rows.forEach(row => { if(progRules[row.id_programa]) progRules[row.id_programa].areas.push(row.id_organograma); });
+    tiposLinkRes.rows.forEach(row => { if(progRules[row.id_programa]) progRules[row.id_programa].tipos.push(row.classificacao); });
+
+
+    // 4. THE APPORTIONMENT MATH (Iterating per Program)
+    const finalOutputRows = [];
+
+    for (const prog of programas) {
+      const progId = prog.id;
+      const progName = prog.nome;
+      const totalValor = Number(prog.valor);
+
+      if (totalValor <= 0) continue; 
+
+      const rules = progRules[progId];
+      const uniqueUserIds = new Set(); // Using a Set to deduplicate automatically
+
+      // Target Match A: Individual Users
+      rules.users.forEach(userId => {
+        if (activeUsersMap[userId]) uniqueUserIds.add(userId);
+      });
+
+      // Target Match B & C: Areas and Classifications
+      activeUsersRes.forEach(user => {
+        if (rules.areas.includes(user.idOrganograma) || rules.tipos.includes(user.classificacao)) {
+          uniqueUserIds.add(user.id);
+        }
+      });
+
+      const headcount = uniqueUserIds.size;
+
+      if (headcount === 0) {
+        console.log(`⚠️ Ignorando ${progName}: Nenhum alvo ativo vinculado às regras.`);
+        continue;
+      }
+
+      const perCapita = totalValor / headcount;
+      const programAllocations = {}; 
+
+      const addAllocation = (ccusto, amount) => {
+        const safeCcusto = ccusto || "N/A";
+        programAllocations[safeCcusto] = (programAllocations[safeCcusto] || 0) + amount;
+      };
+
+      // Loop through the clean, deduplicated pool of users
+      for (const userId of uniqueUserIds) {
+        const user = activeUsersMap[userId];
+        const defaultCcusto = user.U_CC_Padrao || "00011003OH";
+        const isTimesheetUser = (user.U_Folha_Ponto == 1);
+        const userTimesheet = userDistribution[userId];
+
+        if (isTimesheetUser && userTimesheet && userTimesheet.totalHours > 0) {
+          for (const [ccusto, hours] of Object.entries(userTimesheet.allocations)) {
+            const proportion = hours / userTimesheet.totalHours;
+            addAllocation(ccusto, perCapita * proportion);
+          }
+        } else {
+          // Zero hours or not required to submit hours -> Dump into default CC
+          addAllocation(defaultCcusto, perCapita);
+        }
+      }
+
+      // Format output rows for Excel
+      for (const [ccusto, amount] of Object.entries(programAllocations)) {
+        finalOutputRows.push({
+          "Programa": progName,
+          "Centro de Custo": ccusto,
+          "Valor Total": totalValor,
+          "Valor Rateado": Number(amount.toFixed(2))
+        });
+      }
+    }
+
+    if (finalOutputRows.length === 0) {
+      return res.status(400).send("Nenhum rateio gerado. Verifique as regras de distribuição e os valores.");
+    }
+
+    // 5. GENERATE THE NEW EXCEL FILE
+    const newWorkbook = XLSX.utils.book_new();
+    const newWorksheet = XLSX.utils.json_to_sheet(finalOutputRows);
+    XLSX.utils.book_append_sheet(newWorkbook, newWorksheet, "Rateio Softwares");
+
+    const excelBuffer = XLSX.write(newWorkbook, { type: 'buffer', bookType: 'xlsx' });
+
+    res.setHeader('Content-Disposition', `attachment; filename="Rateio_Programas_${month}.xlsx"`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    
+    return res.send(excelBuffer);
+
+  } catch (err) {
+    console.error("Erro no rateio de programas:", err);
+    return res.status(500).send("Erro interno ao processar o rateio de softwares.");
+  } finally {
+    pgClient.release();
+  }
+});
 //##change
 
 // API route to fetch data; app.get will be triggered by the fetch on the html. /api/products
@@ -449,20 +638,20 @@ app.get("/api/accounts", requireAuth, async (req, res) => {
     let query, params = [];
     if (!targetLogin) {
       query = `
-        SELECT DISTINCT RIGHT(Ct_Centro_Custo, 6) AS ccusto
-        FROM adminis.contrato
-        WHERE Ct_Centro_Custo IS NOT NULL
-          AND Ct_Dt_Inicio >= '${MIN_DATE_FILTER}'
+        SELECT DISTINCT RIGHT(centroCusto, 6) AS ccusto
+        FROM adminis.projetosaht
+        WHERE centroCusto IS NOT NULL
+          AND dataInicio >= '${MIN_DATE_FILTER}'
         ORDER BY ccusto;
       `;
     } else {
       query = `
-        SELECT DISTINCT RIGHT(c.Ct_Centro_Custo, 6) AS ccusto
-        FROM adminis.contrato c
-        JOIN adminis.usuarios u ON c.id_usuario = u.id
-        WHERE u.U_Login = ? 
-          AND c.Ct_Centro_Custo IS NOT NULL
-          AND c.Ct_Dt_Inicio >= '${MIN_DATE_FILTER}'
+        SELECT DISTINCT RIGHT(p.centroCusto, 6) AS ccusto
+        FROM adminis.projetosaht p
+        JOIN adminis.usuarioaht u ON p.idGerente = u.id
+        WHERE u.login = ? 
+          AND p.centroCusto IS NOT NULL
+          AND p.dataInicio >= '${MIN_DATE_FILTER}'
         ORDER BY ccusto;
       `;
       params.push(targetLogin);
@@ -470,6 +659,7 @@ app.get("/api/accounts", requireAuth, async (req, res) => {
     const [rows] = await mysqlPool.execute(query, params);
     res.json(rows);
   } catch (err) {
+    console.error("Error fetching accounts:", err);
     res.status(500).send("Error fetching accounts");
   }
 });
@@ -483,56 +673,52 @@ app.get("/api/client-hours", requireAuth, async (req, res) => {
     const query = `
       WITH HorasConsumidas AS (
           SELECT 
-              fp.id_contrato,
+              l.idContrato,
               SUM(
                   CASE 
-                      WHEN DAY(CURRENT_DATE) >= 6 AND fp.Fo_Data < DATE_FORMAT(CURRENT_DATE, '%Y-%m-01') 
-                      THEN fp.Fo_Hora_Padrao 
-                      WHEN DAY(CURRENT_DATE) < 6 AND fp.Fo_Data < DATE_FORMAT(CURRENT_DATE - INTERVAL 1 MONTH, '%Y-%m-01') 
-                      THEN fp.Fo_Hora_Padrao 
+                      WHEN DAY(CURRENT_DATE) >= 6 AND l.data < DATE_FORMAT(CURRENT_DATE, '%Y-%m-01') 
+                      THEN l.horasPadrao 
+                      WHEN DAY(CURRENT_DATE) < 6 AND l.data < DATE_FORMAT(CURRENT_DATE - INTERVAL 1 MONTH, '%Y-%m-01') 
+                      THEN l.horasPadrao 
                       ELSE 0 
                   END
               ) AS total_horas_lancadas,
               SUM(
                   CASE 
                       WHEN DAY(CURRENT_DATE) >= 6 
-                           AND YEAR(fp.Fo_Data) = YEAR(CURRENT_DATE - INTERVAL 1 MONTH) 
-                           AND MONTH(fp.Fo_Data) = MONTH(CURRENT_DATE - INTERVAL 1 MONTH) 
-                      THEN fp.Fo_Hora_Padrao 
+                           AND YEAR(l.data) = YEAR(CURRENT_DATE - INTERVAL 1 MONTH) 
+                           AND MONTH(l.data) = MONTH(CURRENT_DATE - INTERVAL 1 MONTH) 
+                      THEN l.horasPadrao 
                       WHEN DAY(CURRENT_DATE) < 6
-                           AND YEAR(fp.Fo_Data) = YEAR(CURRENT_DATE - INTERVAL 2 MONTH) 
-                           AND MONTH(fp.Fo_Data) = MONTH(CURRENT_DATE - INTERVAL 2 MONTH) 
-                      THEN fp.Fo_Hora_Padrao 
+                           AND YEAR(l.data) = YEAR(CURRENT_DATE - INTERVAL 2 MONTH) 
+                           AND MONTH(l.data) = MONTH(CURRENT_DATE - INTERVAL 2 MONTH) 
+                      THEN l.horasPadrao 
                       ELSE 0 
                   END
               ) AS horas_mes_passado
-          FROM adminis.folha_ponto fp
-          -- FIX 1: Match against the last 6 characters
-          WHERE fp.id_contrato IN (SELECT id FROM adminis.contrato WHERE RIGHT(Ct_Centro_Custo, 6) = ?)
-          GROUP BY fp.id_contrato
+          FROM adminis.lancamentosaht l
+          WHERE l.idContrato IN (SELECT id FROM adminis.projetosaht WHERE RIGHT(centroCusto, 6) = ?)
+          GROUP BY l.idContrato
       ),
       OrcamentoContrato AS (
           SELECT 
-              p.id_contrato,
+              p.idContrato,
               SUM(p.horaPadraoPlanejada) AS horas_totais_orcadas
-          FROM adminis.planejamento p
-          -- FIX 2: Match against the last 6 characters
-          WHERE p.id_contrato IN (SELECT id FROM adminis.contrato WHERE RIGHT(Ct_Centro_Custo, 6) = ?)
-          GROUP BY p.id_contrato 
+          FROM adminis.planejadoaht p
+          WHERE p.idContrato IN (SELECT id FROM adminis.projetosaht WHERE RIGHT(centroCusto, 6) = ?)
+          GROUP BY p.idContrato 
       )
       SELECT 
-          c.Ct_Centro_Custo, 
-          cli.Cl_Nome,
+          proj.centroCusto AS Ct_Centro_Custo, 
+          proj.nomeCliente AS Cl_Nome,
           TRUNCATE(COALESCE(oc.horas_totais_orcadas, 0), 2) AS orcamento_total,
           TRUNCATE(COALESCE(hc.total_horas_lancadas, 0), 2) AS horas_consumidas,
           TRUNCATE(COALESCE(hc.horas_mes_passado, 0), 2) AS horas_mes_passado,
           TRUNCATE((COALESCE(oc.horas_totais_orcadas, 0) - COALESCE(hc.total_horas_lancadas, 0)), 2) AS horas_restantes
-      FROM adminis.contrato c
-      JOIN adminis.clientes cli ON c.id_cliente = cli.id 
-      LEFT JOIN OrcamentoContrato oc ON c.id = oc.id_contrato 
-      LEFT JOIN HorasConsumidas hc ON c.id = hc.id_contrato
-      -- FIX 3: Match against the last 6 characters
-      WHERE RIGHT(c.Ct_Centro_Custo, 6) = ?;
+      FROM adminis.projetosaht proj
+      LEFT JOIN OrcamentoContrato oc ON proj.id = oc.idContrato 
+      LEFT JOIN HorasConsumidas hc ON proj.id = hc.idContrato
+      WHERE RIGHT(proj.centroCusto, 6) = ?;
     `;
     
     const [rows] = await mysqlPool.execute(query, [account, account, account]);
@@ -554,14 +740,14 @@ app.get("/api/client-hours-details", requireAuth, async (req, res) => {
 
   // Dynamically build the date filter string and parameters
   let dateFilter = "";
-  const params = [account];
+  const params = [account, account];
 
   if (year && year !== "all") {
-    dateFilter += " AND YEAR(fp.Fo_Data) = ? ";
+    dateFilter += " AND YEAR(l.data) = ? ";
     params.push(year);
   }
   if (month && month !== "all") {
-    dateFilter += " AND MONTH(fp.Fo_Data) = ? ";
+    dateFilter += " AND MONTH(l.data) = ? ";
     params.push(month);
   }
   
@@ -570,61 +756,60 @@ app.get("/api/client-hours-details", requireAuth, async (req, res) => {
 
   try {
     const query = `
-      WITH HorasConsumidas AS (
+      WITH OrcamentoDisciplina AS (
           SELECT 
-              fp.id_contrato,
-              a.id_disciplina,
+              p.idContrato,
+              p.idDisciplina,
+              p.descricaoDisciplina,
+              SUM(p.horaPadraoPlanejada) AS horas_orcadas
+          FROM adminis.planejadoaht p
+          WHERE p.idContrato IN (SELECT id FROM adminis.projetosaht WHERE RIGHT(centroCusto, 6) = ?)
+          GROUP BY p.idContrato, p.idDisciplina, p.descricaoDisciplina
+      ),
+      HorasConsumidas AS (
+          SELECT 
+              l.idContrato,
+              l.idDisciplina,
               SUM(
                   CASE 
-                      -- Se hoje for dia 5 ou mais: conta até o último dia do mês passado
-                      WHEN DAY(CURRENT_DATE) >= 6 AND fp.Fo_Data < DATE_FORMAT(CURRENT_DATE, '%Y-%m-01') 
-                      THEN fp.Fo_Hora_Padrao 
-                      
-                      -- Se hoje for antes do dia 5: conta apenas até o último dia do mês retrasado
-                      WHEN DAY(CURRENT_DATE) < 6 AND fp.Fo_Data < DATE_FORMAT(CURRENT_DATE - INTERVAL 1 MONTH, '%Y-%m-01') 
-                      THEN fp.Fo_Hora_Padrao 
-                      
+                      WHEN DAY(CURRENT_DATE) >= 6 AND l.data < DATE_FORMAT(CURRENT_DATE, '%Y-%m-01') 
+                      THEN l.horasPadrao 
+                      WHEN DAY(CURRENT_DATE) < 6 AND l.data < DATE_FORMAT(CURRENT_DATE - INTERVAL 1 MONTH, '%Y-%m-01') 
+                      THEN l.horasPadrao 
                       ELSE 0 
                   END
-              ) AS total_horas_lancadas,
+              ) AS horas_consumidas,
               SUM(
                   CASE 
-                      -- Se hoje for dia 5 ou mais: "mês passado" é de fato o mês passado (- 1 MONTH)
                       WHEN DAY(CURRENT_DATE) >= 6 
-                           AND YEAR(fp.Fo_Data) = YEAR(CURRENT_DATE - INTERVAL 1 MONTH) 
-                           AND MONTH(fp.Fo_Data) = MONTH(CURRENT_DATE - INTERVAL 1 MONTH) 
-                      THEN fp.Fo_Hora_Padrao 
-                      
-                      -- Se hoje for antes do dia 5: "mês passado" visualmente é o mês retrasado (- 2 MONTH)
+                           AND YEAR(l.data) = YEAR(CURRENT_DATE - INTERVAL 1 MONTH) 
+                           AND MONTH(l.data) = MONTH(CURRENT_DATE - INTERVAL 1 MONTH) 
+                      THEN l.horasPadrao 
                       WHEN DAY(CURRENT_DATE) < 6
-                           AND YEAR(fp.Fo_Data) = YEAR(CURRENT_DATE - INTERVAL 2 MONTH) 
-                           AND MONTH(fp.Fo_Data) = MONTH(CURRENT_DATE - INTERVAL 2 MONTH) 
-                      THEN fp.Fo_Hora_Padrao 
-                      
+                           AND YEAR(l.data) = YEAR(CURRENT_DATE - INTERVAL 2 MONTH) 
+                           AND MONTH(l.data) = MONTH(CURRENT_DATE - INTERVAL 2 MONTH) 
+                      THEN l.horasPadrao 
                       ELSE 0 
                   END
               ) AS horas_mes_passado
-          FROM adminis.folha_ponto fp
-          JOIN adminis.atividade a ON fp.id_atividade = a.id
-          WHERE fp.id_contrato IN (SELECT id FROM adminis.contrato WHERE RIGHT(Ct_Centro_Custo, 6) = ?)
+          FROM adminis.lancamentosaht l
+          WHERE l.idContrato IN (SELECT id FROM adminis.projetosaht WHERE RIGHT(centroCusto, 6) = ?)
           ${dateFilter}
-          GROUP BY fp.id_contrato, a.id_disciplina
+          GROUP BY l.idContrato, l.idDisciplina
       )
       SELECT 
-          c.Ct_Centro_Custo,
-          d.Di_Descricao,
-          p.horaPadraoPlanejada,
-          ROUND(COALESCE(hc.total_horas_lancadas, 0), 2) AS horas_consumidas,
-          ROUND(COALESCE(hc.horas_mes_passado, 0), 2) AS horas_mes_passado,
-          ROUND((p.horaPadraoPlanejada - COALESCE(hc.total_horas_lancadas, 0)), 2) AS horas_restantes
-      FROM adminis.planejamento p
-      JOIN adminis.disciplina d ON p.id_disciplina = d.id
-      JOIN adminis.contrato c ON p.id_contrato = c.id
-      LEFT JOIN HorasConsumidas hc ON p.id_contrato = hc.id_contrato AND p.id_disciplina = hc.id_disciplina
-      WHERE RIGHT(c.Ct_Centro_Custo, 6) = ?;
+          proj.centroCusto AS Ct_Centro_Custo, 
+          od.descricaoDisciplina AS Di_Descricao,
+          TRUNCATE(COALESCE(od.horas_orcadas, 0), 2) AS orcamento_disciplina,
+          TRUNCATE(COALESCE(hc.horas_consumidas, 0), 2) AS horas_consumidas_disciplina,
+          TRUNCATE(COALESCE(hc.horas_mes_passado, 0), 2) AS horas_mes_passado_disciplina,
+          TRUNCATE((COALESCE(od.horas_orcadas, 0) - COALESCE(hc.horas_consumidas, 0)), 2) AS horas_restantes_disciplina
+      FROM adminis.projetosaht proj
+      JOIN OrcamentoDisciplina od ON proj.id = od.idContrato 
+      LEFT JOIN HorasConsumidas hc ON od.idContrato = hc.idContrato AND od.idDisciplina = hc.idDisciplina
+      WHERE RIGHT(proj.centroCusto, 6) = ?;
     `;
     
-    // We now pass the dynamic 'params' array instead of [account, account]
     const [rows] = await mysqlPool.execute(query, params);
     res.json(rows);
     
@@ -633,7 +818,6 @@ app.get("/api/client-hours-details", requireAuth, async (req, res) => {
     res.status(500).send("Error fetching client hours details");
   }
 });
-
 //Overview
 
 app.get("/api/yearly-overview", requireAuth, async (req, res) => {
@@ -760,9 +944,6 @@ app.get("/api/yearly-overview", requireAuth, async (req, res) => {
     res.status(500).send("Error fetching yearly overview");
   }
 });
-
-
-
 
 
 //By year
@@ -967,11 +1148,11 @@ app.get("/api/transaction-details", requireAuth, async (req, res) => {
     } else {
       // If this is a R$ 0 cell (no existing rows), fetch the baseline 10 digits from MySQL
       const [ccRes] = await mysqlPool.execute(
-        "SELECT Ct_Centro_Custo FROM adminis.contrato WHERE RIGHT(Ct_Centro_Custo, 6) = ? AND Ct_Centro_Custo IS NOT NULL LIMIT 1",
+        "SELECT centroCusto FROM adminis.projetosaht WHERE RIGHT(centroCusto, 6) = ? AND centroCusto IS NOT NULL LIMIT 1",
         [ccusto]
       );
-      if (ccRes.length > 0 && ccRes[0].Ct_Centro_Custo) {
-        suggestedCcusto = ccRes[0].Ct_Centro_Custo;
+      if (ccRes.length > 0 && ccRes[0].centroCusto) {
+        suggestedCcusto = ccRes[0].centroCusto;
       }
     }
 
@@ -1073,7 +1254,6 @@ app.delete("/api/delete-transaction", requireAuth, requireRole("admin"), async (
 });
 
 
-
 app.get("/api/client-hours-periods", requireAuth, async (req, res) => {
   const account = req.query.account;
   if (!account) return res.json([]);
@@ -1081,10 +1261,10 @@ app.get("/api/client-hours-periods", requireAuth, async (req, res) => {
   try {
     const query = `
       SELECT DISTINCT 
-          YEAR(fp.Fo_Data) AS ano, 
-          MONTH(fp.Fo_Data) AS mes
-      FROM adminis.folha_ponto fp
-      WHERE fp.id_contrato IN (SELECT id FROM adminis.contrato WHERE Ct_Centro_Custo = ?)
+          YEAR(l.data) AS ano, 
+          MONTH(l.data) AS mes
+      FROM adminis.lancamentosaht l
+      WHERE l.idContrato IN (SELECT id FROM adminis.projetosaht WHERE RIGHT(centroCusto, 6) = ?)
       ORDER BY ano DESC, mes DESC;
     `;
     const [rows] = await mysqlPool.execute(query, [account]);
@@ -1099,17 +1279,17 @@ app.get("/api/owners", requireAuth, async (req, res) => {
   try {
     if (req.session.user.role === "gerente") {
       return res.json([
-        { nome: req.session.user.nome, login: req.session.user.login } // Added login here
+        { nome: req.session.user.nome, login: req.session.user.login } 
       ]);
     }
 
     const query = `
-      SELECT DISTINCT u.U_Nome AS nome, u.U_Login AS login -- Added login here
-      FROM adminis.contrato c
-      JOIN adminis.usuarios u ON c.id_usuario = u.id
-      WHERE c.Ct_Dt_Inicio >= '${MIN_DATE_FILTER}'
-        AND c.Ct_Centro_Custo IS NOT NULL
-      ORDER BY u.U_Nome;
+      SELECT DISTINCT u.nome AS nome, u.login AS login 
+      FROM adminis.projetosaht p
+      JOIN adminis.usuarioaht u ON p.idGerente = u.id
+      WHERE p.dataInicio >= '${MIN_DATE_FILTER}'
+        AND p.centroCusto IS NOT NULL
+      ORDER BY u.nome;
     `;
 
     const [rows] = await mysqlPool.execute(query);

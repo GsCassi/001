@@ -69,6 +69,7 @@
         </div>
 
         <button type="submit" class="btn-upload">Enviar</button>
+        <button type="button" class="btn" style="background-color: #607d8b; color: white; border: none; margin-left: 15px;" onclick="openSoftwareModal()">Rateio de Softwares</button>
         
       </form>
     </div>
@@ -151,6 +152,26 @@
             </tbody>
           </table>
         </div>
+      </div>
+    </div>
+
+    <!-- Software Costing Modal -->
+    <div id="softwareModal" class="modal" onclick="closeSoftwareModalOnOutsideClick(event)">
+      <div class="modal-content" style="max-width: 500px;">
+        <span class="close-btn" onclick="closeSoftwareModal()">&times;</span>
+        <h3 style="margin-top: 0; color: #1e293b;">Custos de Software</h3>
+        <p style="font-size: 13px; color: #64748b; margin-bottom: 20px;">Insira os valores gastos com cada licença neste mês. Deixe em branco ou 0 para ignorar o programa.</p>
+
+        <div class="filter-item" style="margin-bottom: 20px;">
+          <label>Mês de Referência</label>
+          <input type="month" id="softwareMonth" class="select month-input" required />
+        </div>
+
+        <div id="programasList" style="max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px;">
+          <!-- Programs will be injected here automatically by JS -->
+        </div>
+
+        <button class="btn-save" style="width: 100%; padding: 12px; font-size: 16px; background-color: #34a853;" onclick="generateSoftwareRateio()">Gerar Excel de Softwares</button>
       </div>
     </div>
 
@@ -350,6 +371,123 @@
       }
 
 
+      /* ---------- RATEIO DE SOFTWARES LOGIC ---------- */
+
+      async function openSoftwareModal() {
+        const modal = document.getElementById("softwareModal");
+        const list = document.getElementById("programasList");
+        
+        // Auto-fill the month from the main upload form if the admin already selected it
+        const mainMonth = document.querySelector('input[name="month"]').value;
+        if (mainMonth) document.getElementById("softwareMonth").value = mainMonth;
+
+        list.innerHTML = "<p>Carregando programas...</p>";
+        modal.style.display = "flex";
+
+        try {
+          const res = await fetch("/api/programas");
+          const programas = await res.json();
+
+          if (programas.length === 0) {
+            list.innerHTML = "<p style='color: #94a3b8; font-style: italic;'>Nenhum programa cadastrado no banco de dados.</p>";
+            return;
+          }
+
+          list.innerHTML = "";
+          programas.forEach(p => {
+            const div = document.createElement("div");
+            div.style.display = "flex";
+            div.style.justifyContent = "space-between";
+            div.style.alignItems = "center";
+            div.style.padding = "10px";
+            div.style.backgroundColor = "#f8fafc";
+            div.style.borderRadius = "6px";
+            div.style.border = "1px solid #e2e8f0";
+
+            div.innerHTML = `
+              <span style="font-weight: 500; color: #334155;">${p.nome_programa}</span>
+              <div style="display: flex; align-items: center; gap: 5px;">
+                <span style="color: #64748b; font-weight: bold;">R$</span>
+                <input type="number" id="prog_${p.id}" data-name="${p.nome_programa}" class="edit-input" placeholder="0.00" step="0.01" style="width: 100px;">
+              </div>
+            `;
+            list.appendChild(div);
+          });
+
+        } catch (err) {
+          list.innerHTML = "<p style='color: red;'>Erro ao carregar a lista de programas.</p>";
+        }
+      }
+
+      function closeSoftwareModal() {
+        document.getElementById("softwareModal").style.display = "none";
+      }
+
+      function closeSoftwareModalOnOutsideClick(event) {
+        const modal = document.getElementById("softwareModal");
+        if (event.target === modal) closeSoftwareModal();
+      }
+
+      async function generateSoftwareRateio() {
+        const month = document.getElementById("softwareMonth").value;
+        if (!month) {
+          alert("Por favor, selecione o mês de referência.");
+          return;
+        }
+
+        // Gather all inputs that have a value > 0
+        const inputs = document.querySelectorAll("#programasList input[type='number']");
+        const programasPayload = [];
+
+        inputs.forEach(input => {
+          const valor = Number(input.value);
+          if (valor > 0) {
+            programasPayload.push({
+              id: parseInt(input.id.replace("prog_", "")),
+              nome: input.getAttribute("data-name"),
+              valor: valor
+            });
+          }
+        });
+
+        if (programasPayload.length === 0) {
+          alert("Insira um valor maior que zero em pelo menos um programa para gerar o rateio.");
+          return;
+        }
+
+        try {
+          const res = await fetch("/api/rateio-programas", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ month, programas: programasPayload })
+          });
+
+          if (!res.ok) {
+            alert("Erro: " + await res.text());
+            return;
+          }
+
+          // Handle the Excel File Download
+          const blob = await res.blob();
+          const downloadUrl = window.URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.style.display = "none";
+          a.href = downloadUrl;
+          a.download = `Rateio_Programas_${month}.xlsx`; 
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(downloadUrl);
+          a.remove();
+          
+          alert("Rateio de softwares gerado e baixado com sucesso!");
+          closeSoftwareModal();
+
+        } catch (err) {
+          console.error("Erro ao gerar rateio de softwares:", err);
+          alert("Erro ao comunicar com o servidor. Verifique o console.");
+        }
+      }
+
       /* ---------- RENDER ---------- */
 
       // Helper to return solid or transparent colors based on the value
@@ -482,21 +620,21 @@
             maximumFractionDigits: 2
           });
 
-          details.forEach(row => {
+details.forEach(row => {
             let val = 0;
             if (currentModalMetric === 'totais') {
-              val = row.horaPadraoPlanejada;
+              val = row.orcamento_disciplina;
               title = "Horas Totais por Área";
             } else if (currentModalMetric === 'consumidas') {
-              val = row.horas_consumidas;
+              val = row.horas_consumidas_disciplina;
               title = "Horas Utilizadas por Área";
               // Update title to reflect the chosen date filter
               if (year !== "all") title += ` (${year}${month !== "all" ? '/' + month.toString().padStart(2, '0') : ''})`;
             } else if (currentModalMetric === 'restantes') {
-              val = row.horas_restantes;
+              val = row.horas_restantes_disciplina;
               title = "Horas Restantes por Área";
             } else if (currentModalMetric === 'mes_passado') {
-              val = row.horas_mes_passado;
+              val = row.horas_mes_passado_disciplina;
               title = "Horas do Último Mês por Área";
             }
 
