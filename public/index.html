@@ -1,101 +1,144 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
   <title>SIGE</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="stylesIndex.css">
   <link rel="icon" type="image/png" href="favicon.png">
+  
+  <!-- Fontes e Ícones do Mockup -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
 </head>
-
 <body>
-  
-  <div class="Container">
-    <div class="dashboard-header">
-      <div class="header-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-          <polyline points="14 2 14 8 20 8"></polyline>
-          <line x1="16" y1="13" x2="8" y2="13"></line>
-          <line x1="16" y1="17" x2="8" y2="17"></line>
-          <polyline points="10 9 9 9 8 9"></polyline>
-        </svg>
+
+  <!-- BARRA LATERAL (Do dashboard.html) -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <div class="sidebar-brand">
+      <div class="brand-icon-box">
+        <i class="fa-solid fa-file-lines"></i>
       </div>
-      <div class="header-text">
-        <h1 class="main-title">SIGE</h1>
-        <p class="sub-title">Painel Gerencial</p>
+      <div class="brand-text-container">
+        <span class="brand-title">SIGE</span>
+        <span class="brand-subtitle">Sistema Integrado de Gestão Empresarial</span>
       </div>
-      <button onclick="logout()" class="btn" style="margin-left:auto">Sair</button>
     </div>
-    
+  </div>
 
-    
-    <div class="upload-card">
-      <form id="uploadForm" class="horizontal-form">
+  <ul class="sidebar-menu">
+    <li><a class="nav-item active"><i class="fa-solid fa-wallet"></i> <span>Resultado Gerencial</span></a></li>
+  </ul>
+</aside>
+
+  <!-- WRAPPER PRINCIPAL -->
+  <div class="main-wrapper">
+    <!-- TOPBAR -->
+    <header class="topbar">
+      <div class="topbar-left">
         
-        <div class="filter-item">
-          <label>Mês de referência</label>
-          <input type="month" name="month" required class="select month-input" />
-        </div>
+        <span class="system-title" style="font-weight:600;">SIGE | Resultado Gerencial</span>
+      </div>
+      <div class="topbar-right">
+        <!-- Seu botão de logout existente com o novo estilo -->
+        <button class="btn-logout" onclick="logout()"><i class="fa-solid fa-right-from-bracket"></i> Sair</button>
+      </div>
+    </header>
 
-        <div class="filter-item">
-          <label>Tipo de Upload:</label>
-          <div style="display: flex; gap: 15px; margin-top: 5px;">
-            <label style="cursor: pointer;">
-              <input type="radio" name="uploadType" value="direto" checked> 
-              Lançamento Direto (Banco de Dados)
-            </label>
-            <label style="cursor: pointer;">
-              <input type="radio" name="uploadType" value="rateio"> 
-              Gerar Rateio (Download Excel)
-            </label>
+    <!-- ÁREA DE CONTEÚDO (Onde seu código começa) -->
+    <main class="content-area">
+    
+    <div class="card-panel upload-card" style="margin-bottom: 24px;">
+      <div class="panel-header">
+        <span class="panel-title"><i class="fa-solid fa-file-excel" style="color: #a61c30;"></i> Importação e Processamento de Dados</span>
+      </div>
+
+      <form id="uploadForm">
+        <div class="form-group-grid" style="margin-bottom: 20px;">
+          <div class="form-field">
+            <label>Mês de referência</label>
+            <input type="month" name="month" required class="input-text" />
+          </div>
+
+          <div class="form-field" style="grid-column: span 2;">
+            <label>Tipo de Upload:</label>
+            <div style="display: flex; gap: 20px; margin-top: 10px; align-items: center; flex-wrap: wrap;">
+              <label style="cursor: pointer; display: flex; align-items: center; gap: 6px; font-weight: normal;">
+                <input type="radio" name="uploadType" value="direto" checked style="accent-color: #a61c30;"> 
+                Lançamento Direto (Banco de Dados)
+              </label>
+              <label style="cursor: pointer; display: flex; align-items: center; gap: 6px; font-weight: normal;">
+                <input type="radio" name="uploadType" value="rateio" style="accent-color: #a61c30;"> 
+                Gerar Rateio (Download Excel)
+              </label>
+              <label style="cursor: pointer; display: flex; align-items: center; gap: 6px; font-weight: normal;">
+                <input type="radio" name="uploadType" value="rateio_nf" style="accent-color: #a61c30;"> 
+                Rateio por NF / Empresa
+              </label>
+            </div>
           </div>
         </div>
 
-        <div class="filter-item">
-          <label>Arquivo XLS (1)</label>
-          <div class="file-box">
-            <input type="file" name="files" accept=".xls,.xlsx" required />
+        <div class="dropzone-container">
+          <div class="dropzone-box" onclick="this.querySelector('input[type=file]').click()">
+            <i class="fa-solid fa-cloud-arrow-up"></i>
+            <p style="font-weight:600; margin-bottom: 4px;">Arquivo XLS (1)</p>
+            <small style="color: #71717a;" id="lblFile1">Clique ou selecione a planilha</small>
+            <input type="file" name="files" accept=".xls,.xlsx" required style="display: none;" onchange="if(this.files[0]) document.getElementById('lblFile1').innerText = this.files[0].name" />
+          </div>
+
+          <div class="dropzone-box" id="file2Container" onclick="this.querySelector('input[type=file]').click()">
+            <i class="fa-solid fa-cloud-arrow-up"></i>
+            <p style="font-weight:600; margin-bottom: 4px;">Arquivo XLS (2)</p>
+            <small style="color: #71717a;" id="lblFile2">Clique ou selecione a segunda planilha</small>
+            <input type="file" name="files" id="file2Input" accept=".xls,.xlsx" style="display: none;" onchange="if(this.files[0]) document.getElementById('lblFile2').innerText = this.files[0].name" />
           </div>
         </div>
 
-        <div class="filter-item" id="file2Container">
-          <label>Arquivo XLS (2)</label>
-          <div class="file-box">
-            <input type="file" name="files" id="file2Input" accept=".xls,.xlsx" />
-          </div>
+        <div style="margin-top: 24px; display: flex; justify-content: flex-end; gap: 12px; align-items: center;">
+          <button type="button" onclick="openSoftwareModal()" style="background-color: #64748b; color: white; border: none; padding: 10px 16px; border-radius: 8px; font-weight: 600; cursor: pointer;">
+            <i class="fa-solid fa-laptop-code"></i> Rateio de Softwares
+          </button>
+          <button type="submit" style="background-color: #a61c30; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: 600; display: inline-flex; align-items: center; gap: 8px;">
+            <i class="fa-solid fa-paper-plane"></i> Processar e Enviar
+          </button>
         </div>
-
-        <button type="submit" class="btn-upload">Enviar</button>
-        <button type="button" class="btn" style="background-color: #607d8b; color: white; border: none; margin-left: 15px;" onclick="openSoftwareModal()">Rateio de Softwares</button>
-        
       </form>
     </div>
 
-    <div class="filter-group">
-      
+    <div class="card-panel" style="margin-bottom: 24px;">
+      <div class="panel-header" style="align-items: flex-end;">
+        <span class="panel-title"><i class="fa-solid fa-sliders" style="color: #a61c30;"></i> Seleção do Projeto</span>
+        
+        <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+          <div class="form-field">
+            <label for="ownerSelect">Escolha o gerente:</label>
+            <select id="ownerSelect" class="input-select" style="min-width: 250px; cursor: pointer;">
+              <option value="">Todos os gerentes</option>
+            </select>
+          </div>
 
-      <div class="filter-item">
-        <label for="ownerSelect">Escolha o gerente:</label>
-        <select id="ownerSelect" class="select">
-          <option value="">Todos os gerentes</option>
-        </select>
-      </div>
-
-      <div class="filter-item">
-        <label for="accountSelect">Escolha a conta:</label>
-        <select id="accountSelect" class="select">
-          <option value="">Todas as contas</option>
-        </select>
-      </div>
-    </div>
-
-    <div id="clientHoursSection" class="overview-section" style="display: none; margin-bottom: 20px;">
-      <h3 style="margin-top: 0; color: #1e293b; font-size: 16px;"> Resumo do Projeto</h3>
-      <div id="clientHoursContent" style="display: flex; gap: 40px; margin-top: 15px; color: #475569;">
+          <div class="form-field">
+            <label for="accountSelect">Escolha a conta:</label>
+            <select id="accountSelect" class="input-select" style="min-width: 250px; cursor: pointer;">
+              <option value="">Todas as contas</option>
+            </select>
+          </div>
         </div>
+      </div>
+
+      <!-- Resumo do Projeto (Injetado via JS) -->
+      <div id="clientHoursSection" style="display: none; background: #f8fafc; border: 1px solid #e4e4e7; border-radius: 8px; padding: 16px 20px; margin-top: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
+        <div style="font-weight: 700; font-size: 14px; color: #27272a; display: flex; align-items: center; gap: 8px;">
+          <i class="fa-solid fa-briefcase" style="color: #a61c30;"></i>
+          <span>Resumo do Projeto</span>
+        </div>
+        <div id="clientHoursContent" style="display: flex; gap: 24px; flex-wrap: wrap; font-size: 13px; color: #475569;">
+          <!-- JavaScript injeta os dados de horas aqui -->
+        </div>
+      </div>
     </div>
 
     <div class="overview-section">
@@ -104,13 +147,24 @@
     </div>
     <br><br>
 
-    <div class="filters">
-      <button class="btn active" onclick="showAllMonths(); updateActiveButton(this)">Ano</button>
-      <button class="btn" onclick="showTrimester(1); updateActiveButton(this)">T1</button>
-      <button class="btn" onclick="showTrimester(2); updateActiveButton(this)">T2</button>
-      <button class="btn" onclick="showTrimester(3); updateActiveButton(this)">T3</button>
-      <button class="btn" onclick="showTrimester(4); updateActiveButton(this)">T4</button>
-    </div>
+    <div class="panel-header" style="margin-bottom:12px; margin-top: 24px;">
+          <span class="panel-title"><i class="fa-solid fa-table-list" style="color:#a61c30"></i> DRE / Demonstração Detalhada por Exercício</span>
+        </div>
+
+        <div class="dre-controls-bar" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; background: #f8fafc; padding: 12px 16px; border: 1px solid #e4e4e7; border-radius: 8px; margin-bottom: 16px;">
+          
+          <!-- Botões de Ano injetados via JS -->
+          <div id="dreYearTabs" class="year-tabs-group"></div>
+
+          <!-- Botões de Período -->
+          <div class="period-filter-group filters" style="margin-bottom: 0;">
+            <button class="btn-period active" onclick="showAllMonths(); updateActiveButton(this)">Ano</button>
+            <button class="btn-period" onclick="showTrimester(1); updateActiveButton(this)">T1</button>
+            <button class="btn-period" onclick="showTrimester(2); updateActiveButton(this)">T2</button>
+            <button class="btn-period" onclick="showTrimester(3); updateActiveButton(this)">T3</button>
+            <button class="btn-period" onclick="showTrimester(4); updateActiveButton(this)">T4</button>
+          </div>
+        </div>
     <br>
 
     
@@ -212,7 +266,7 @@
         ["out", "Out"], ["nov", "Nov"], ["dez", "Dez"]
       ];
 
-
+      let activeDreYear = null;
       let activeMonths = [1,2,3,4,5,6,7,8,9,10,11,12];
       let expandedYears = new Set(); // Add this line
 
@@ -918,15 +972,26 @@ function renderYearlyOverview({ years, data }) {
   const container = document.getElementById("yearlyOverview");
   const toggleH2 = document.getElementById("toggleYearlyOverview");
 
+  // Update the title to match the mockup
+  toggleH2.innerHTML = `<i class="fa-solid fa-chart-line" style="color:#a61c30"></i> Comparação Anual (Resumo dos Exercícios)`;
+  toggleH2.style.cursor = "default";
+  toggleH2.onclick = null; 
+
   container.innerHTML = "";
+  container.style.display = "block";
+
+  // Sort years from newest to oldest
+  const sortedYears = [...years].sort((a, b) => b - a);
 
   const table = document.createElement("table");
+  table.className = "data-table"; 
   table.innerHTML = `
     <thead>
       <tr>
-        <th>Categoria</th>
-        ${years.map(y => `<th>${y}</th>`).join("")}
-        <th style="text-align: right;">Total Histórico</th>
+        <th>Ano / Exercício</th>
+        <th>Receitas Totais</th>
+        <th>Despesas Totais</th>
+        <th>Resultado Líquido</th>
       </tr>
     </thead>
     <tbody></tbody>
@@ -943,130 +1008,65 @@ function renderYearlyOverview({ years, data }) {
   const addYearsData = (target, source) => {
     years.forEach(y => { target[y] += (source[y] || 0); });
   };
-  const getRowTotal = (totals) => years.reduce((sum, y) => sum + (totals[y] || 0), 0);
 
-  // --- Pre-calculate Title Totals ---
-  const titleTotalsMap = {};
-  Object.values(data).forEach(obj => {
-    if (!titleTotalsMap[obj.titulo]) titleTotalsMap[obj.titulo] = emptyYears();
-    addYearsData(titleTotalsMap[obj.titulo], obj.totals);
-  });
-
-  // --- State Variables ---
+  // --- State Variables to calculate T1, T2, T3, and T4 ---
   let titleIndex = 0;
   let currentTitle = null;
+  let lastTitulo = null;
   let titleSum = emptyYears();
 
-  const T1 = emptyYears();
-  const T2 = emptyYears();
-  const T3 = emptyYears();
-  const totalMargin = emptyYears();
+  const T1 = emptyYears(); // Receitas
+  const T2 = emptyYears(); // Custos e Despesas
+  const T3 = emptyYears(); // Custos Diretos
+  const T4 = emptyYears(); // Custos Indiretos (Para o Resultado do Centro de Custo)
 
-  let lastTitulo = null;
-
-  // --- HTML Row Builders ---
-function buildRow(type, label, totals, arrow = "") {
-    const tr = document.createElement("tr");
-    tr.className = type;
-    const totalValue = getRowTotal(totals);
-
-    // <-- ADD THIS: Hide topics by default -->
-    if (type.includes("topic-row")) {
-      tr.style.display = "none"; 
-    }
-
-    let firstCol = label;
-    if (type.includes("title-row")) { // <-- Changed to .includes to catch "title-row collapsed"
-      firstCol = `<span class="title-toggle">${arrow}</span>${label}`;
-      tr.style.cursor = "pointer";
-      tr.addEventListener("click", () => toggleTitle(tr)); 
-    } else if (type.includes("topic-row")) { // <-- Changed to .includes
-      firstCol = `<span class="topic-toggle">${arrow}</span>${label}`;
-      tr.addEventListener("click", () => toggleCategories(tr)); 
-    } else if (type === "sum-row") {
-      firstCol = `<strong>${label}</strong>`;
-    }
-
-    tr.innerHTML = `<td>${firstCol}</td>` +
-      years.map(y => `<td>${numberFormatter.format(totals[y] || 0)}</td>`).join("") +
-      `<td style="text-align: right;"><strong>${numberFormatter.format(totalValue)}</strong></td>`;
-
-    return tr;
-  }
-
-  function buildCategory(r) {
-    const tr = document.createElement("tr");
-    tr.className = "category-row";
-    tr.style.display = "none";
-    const totalValue = getRowTotal(r);
-
-    tr.innerHTML = `<td>${r.category_name}</td>` +
-      years.map(y => `<td>${numberFormatter.format(r[y] || 0)}</td>`).join("") +
-      `<td style="text-align: right;">${numberFormatter.format(totalValue)}</td>`;
-    
-    return tr;
-  }
-
-  // --- Main Rendering Loop ---
+  // --- Main Loop to accumulate the values ---
   Object.entries(data).forEach(([topic, obj]) => {
-
-    // TITLE CHANGE
     if (obj.titulo !== lastTitulo) {
       if (currentTitle) {
         if (titleIndex === 1) addYearsData(T1, titleSum);
         if (titleIndex === 2) addYearsData(T2, titleSum);
         if (titleIndex === 3) addYearsData(T3, titleSum);
-
-        // Sum rows
-        if (titleIndex === 1) tbody.appendChild(buildRow("sum-row", TOTAL_LABELS.T1, titleSum));
-        if (titleIndex === 3) {
-          const totalT3 = emptyYears();
-          addYearsData(totalT3, T2);
-          addYearsData(totalT3, T3);
-          tbody.appendChild(buildRow("sum-row", TOTAL_LABELS.T3, totalT3));
-
-          addYearsData(totalMargin, T1);
-          addYearsData(totalMargin, T2);
-          addYearsData(totalMargin, T3);
-          tbody.appendChild(buildRow("sum-row", TOTAL_LABELS.TOTAL_MARGIN, totalMargin));
-        }
+        if (titleIndex === 4) addYearsData(T4, titleSum);
         titleSum = emptyYears();
       }
-
       titleIndex++;
       currentTitle = obj.titulo;
       lastTitulo = obj.titulo;
-
-      // Draw the new title row
-      tbody.appendChild(buildRow("title-row collapsed", obj.titulo, titleTotalsMap[obj.titulo], "▶"));
     }
-
-    // TOPIC
-    tbody.appendChild(buildRow("topic-row collapsed", topic, obj.totals, "▶"));
     addYearsData(titleSum, obj.totals);
-
-    // CATEGORIES
-    obj.categories.forEach(c => {
-      tbody.appendChild(buildCategory(c));
-    });
   });
 
-  // CLOSE FINAL TITLE
-  if (currentTitle && titleIndex === 4) {
-    const finalT4 = emptyYears();
-    addYearsData(finalT4, titleSum);
-    addYearsData(finalT4, totalMargin);
-    tbody.appendChild(buildRow("sum-row", TOTAL_LABELS.T4, finalT4));
+  // Catch the final title after the loop finishes
+  if (currentTitle) {
+    if (titleIndex === 1) addYearsData(T1, titleSum);
+    if (titleIndex === 2) addYearsData(T2, titleSum);
+    if (titleIndex === 3) addYearsData(T3, titleSum);
+    if (titleIndex === 4) addYearsData(T4, titleSum);
   }
 
-  container.appendChild(table);
+  // --- Render the rows dynamically per year ---
+  sortedYears.forEach(y => {
+    const receitas = T1[y] || 0;
+    const despesas = (T2[y] || 0) + (T3[y] || 0);
+    
+    // O Resultado do Centro de Custo é a soma de Receitas + Despesas + Indiretos (T4)
+    const resultadoLiquido = receitas + despesas + (T4[y] || 0); 
+    
+    // Formata o sinal visual se for positivo
+    const prefix = resultadoLiquido > 0 ? "+ " : "";
 
-  // Toggle Visibility
-  toggleH2.onclick = () => {
-    const isHidden = container.style.display === "none" || container.style.display === "";
-    container.style.display = isHidden ? "block" : "none";
-    toggleH2.textContent = (isHidden ? "▼ " : "▶ ") + "Comparação Anual";
-  };
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><strong>${y}</strong></td>
+      <td style="color: #10b981; font-weight: 600;">R$ ${numberFormatter.format(receitas)}</td>
+      <td style="color: #dc2626; font-weight: 600;">R$ ${numberFormatter.format(despesas)}</td>
+      <td><strong>${prefix}R$ ${numberFormatter.format(resultadoLiquido)}</strong></td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  container.appendChild(table);
 }
 
       function filteredTotals(totals) {
@@ -1121,170 +1121,149 @@ function buildRow(type, label, totals, arrow = "") {
 
 function renderYears(data) {
   const container = document.getElementById("yearsContainer");
+  const yearTabsContainer = document.getElementById("dreYearTabs");
+  
   container.innerHTML = "";
+  yearTabsContainer.innerHTML = `<span style="font-size:12px; font-weight:600; color:#71717a; margin-right:6px;">Exercício:</span>`;
 
-  Object.keys(data)
+  // Get available years and sort newest to oldest
+  const availableYears = Object.keys(data)
     .filter(year => year !== "null")
-    .sort((a, b) => Number(b) - Number(a))
-    .forEach(year => {
+    .sort((a, b) => Number(b) - Number(a));
 
-      const h = document.createElement("h2");
-      h.textContent = `▶ ${year}`;
-      h.className = "year";
+  if (availableYears.length === 0) return;
 
-      const table = document.createElement("table");
-      const isExpanded = expandedYears.has(year);
-      table.style.display = isExpanded ? "table" : "none";
+  // Set default active year if not set
+  if (!activeDreYear || !availableYears.includes(activeDreYear)) {
+    activeDreYear = availableYears[0];
+  }
 
-      h.textContent = (isExpanded ? "▼ " : "▶ ") + year;
+  // 1. Generate Year Buttons
+  availableYears.forEach(year => {
+    const btn = document.createElement("button");
+    btn.className = `btn-tab-year ${year === activeDreYear ? "active" : ""}`;
+    btn.textContent = year;
+    btn.onclick = () => switchDreYear(year);
+    yearTabsContainer.appendChild(btn);
+  });
 
-      const totalLabel = activeMonths.length < 12 ? "Total Trimestre" : "Total do Ano";
+  // 2. Generate Tables
+  availableYears.forEach(year => {
+    const tableWrapper = document.createElement("div");
+    tableWrapper.className = "table-responsive";
+    tableWrapper.id = `dre-wrapper-${year}`;
+    tableWrapper.style.display = year === activeDreYear ? "block" : "none";
 
-      table.innerHTML = `
-        <thead>
-          <tr>
-            <th>Categoria</th>
-            ${months.map((m, i) => `<th data-month="${i + 1}">${m[1]}</th>`).join("")}
-            <th class="trimester-total" style="text-align: right;">${totalLabel}</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      `;
+    const table = document.createElement("table");
+    table.id = `dre-table-${year}`;
+    table.className = "dre-table";
 
-      const tbody = table.querySelector("tbody");
+    const totalLabel = activeMonths.length < 12 ? "Total Trimestre" : "Total do Ano";
 
-      // ---------- PRE-CALCULATE TITLE SUMS ----------
-      const titleTotalsMap = {};
-      Object.values(data[year]).forEach(obj => {
-        if (!titleTotalsMap[obj.titulo]) titleTotalsMap[obj.titulo] = emptyMonths();
-        addMonths(titleTotalsMap[obj.titulo], obj.totals);
-      });
+    table.innerHTML = `
+      <thead>
+        <tr>
+          <th>Categoria</th>
+          ${months.map((m, i) => `<th data-month="${i + 1}">${m[1]}</th>`).join("")}
+          <th class="trimester-total" style="text-align: right;">${totalLabel}</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    `;
 
-      // ---------- STATE ----------
-      let titleIndex = 0;
-      let currentTitle = null;
-      let titleSum = emptyMonths();
+    const tbody = table.querySelector("tbody");
 
-      const T1 = emptyMonths();
-      const T2 = emptyMonths();
-      const T3 = emptyMonths();
-      const totalMargin = emptyMonths();
-
-      let lastTitulo = null;
-
-      // ---------- LOOP ----------
-      Object.entries(data[year]).forEach(([topic, obj]) => {
-
-        // ===== TITLE CHANGE =====
-        if (obj.titulo !== lastTitulo) {
-
-          // 🔒 Close previous title
-          if (currentTitle) {
-
-            // store raw totals
-            if (titleIndex === 1) addMonths(T1, titleSum);
-            if (titleIndex === 2) addMonths(T2, titleSum);
-            if (titleIndex === 3) addMonths(T3, titleSum);
-
-            // ----- RENDER TOTALS -----
-
-            // Title 1
-            if (titleIndex === 1) {
-              tbody.appendChild(
-                sumRow(
-                  TOTAL_LABELS.T1,
-                  filteredTotals(titleSum)
-                )
-              );
-            }
-
-            // Title 3 (two rows)
-            if (titleIndex === 3) {
-
-              // Row 1: T2 + T3
-              const totalT3 = emptyMonths();
-              addMonths(totalT3, T2);
-              addMonths(totalT3, T3);
-
-              tbody.appendChild(
-                sumRow(
-                  TOTAL_LABELS.T3,
-                  filteredTotals(totalT3)
-                )
-              );
-
-              // Row 2: Total Margin = T1 + T2 + T3
-              addMonths(totalMargin, T1);
-              addMonths(totalMargin, T2);
-              addMonths(totalMargin, T3);
-
-              tbody.appendChild(
-                sumRow(
-                  TOTAL_LABELS.TOTAL_MARGIN,
-                  filteredTotals(totalMargin)
-                )
-              );
-            }
-
-            titleSum = emptyMonths();
-          }
-
-          // 🔓 Start new title
-          titleIndex++;
-          currentTitle = obj.titulo;
-          lastTitulo = obj.titulo;
-
-          // CHANGE: Pass the pre-calculated totals to the titleRow function
-          tbody.appendChild(titleRow(obj.titulo, titleTotalsMap[obj.titulo]));
-        }
-
-        // ===== TOPIC =====
-        const tRow = topicRow(topic, obj.totals);
-        tRow.style.display = "none"; // <-- Hide by default because title is collapsed
-        tbody.appendChild(tRow);
-        addMonths(titleSum, obj.totals);
-
-        // ===== CATEGORIES =====
-        obj.categories.forEach(c => {
-          const row = categoryRow(c, year);
-          row.style.display = "none";
-          tbody.appendChild(row);
-        });
-      });
-
-      // ---------- CLOSE LAST TITLE (Title 4) ----------
-      if (currentTitle && titleIndex === 4) {
-
-        const finalT4 = emptyMonths();
-        addMonths(finalT4, titleSum);      // T4
-        addMonths(finalT4, totalMargin);   // + Total Margin
-
-        tbody.appendChild(
-          sumRow(
-            TOTAL_LABELS.T4,
-            filteredTotals(finalT4)
-          )
-        );
-      }
-
-      // ---------- TOGGLE ----------
-      h.onclick = () => {
-        table.style.display = table.style.display === "none" ? "table" : "none";
-        h.textContent = (table.style.display === "none" ? "▶ " : "▼ ") + year;
-
-        if (table.style.display === "table") {
-          expandedYears.add(year);
-        } else {
-          expandedYears.delete(year);
-        }
-
-      };
-
-      container.appendChild(h);
-      container.appendChild(table);
+    // ---------- PRE-CALCULATE TITLE SUMS ----------
+    const titleTotalsMap = {};
+    Object.values(data[year]).forEach(obj => {
+      if (!titleTotalsMap[obj.titulo]) titleTotalsMap[obj.titulo] = emptyMonths();
+      addMonths(titleTotalsMap[obj.titulo], obj.totals);
     });
 
+    let titleIndex = 0;
+    let currentTitle = null;
+    let titleSum = emptyMonths();
+    const T1 = emptyMonths();
+    const T2 = emptyMonths();
+    const T3 = emptyMonths();
+    const totalMargin = emptyMonths();
+    let lastTitulo = null;
+
+    Object.entries(data[year]).forEach(([topic, obj]) => {
+      if (obj.titulo !== lastTitulo) {
+        if (currentTitle) {
+          if (titleIndex === 1) addMonths(T1, titleSum);
+          if (titleIndex === 2) addMonths(T2, titleSum);
+          if (titleIndex === 3) addMonths(T3, titleSum);
+
+          if (titleIndex === 1) tbody.appendChild(sumRow(TOTAL_LABELS.T1, filteredTotals(titleSum)));
+          if (titleIndex === 3) {
+            const totalT3 = emptyMonths();
+            addMonths(totalT3, T2);
+            addMonths(totalT3, T3);
+            tbody.appendChild(sumRow(TOTAL_LABELS.T3, filteredTotals(totalT3)));
+
+            addMonths(totalMargin, T1);
+            addMonths(totalMargin, T2);
+            addMonths(totalMargin, T3);
+            tbody.appendChild(sumRow(TOTAL_LABELS.TOTAL_MARGIN, filteredTotals(totalMargin)));
+          }
+          titleSum = emptyMonths();
+        }
+
+        titleIndex++;
+        currentTitle = obj.titulo;
+        lastTitulo = obj.titulo;
+
+        tbody.appendChild(titleRow(obj.titulo, titleTotalsMap[obj.titulo]));
+      }
+
+      const tRow = topicRow(topic, obj.totals);
+      tRow.style.display = "none";
+      tbody.appendChild(tRow);
+      addMonths(titleSum, obj.totals);
+
+      obj.categories.forEach(c => {
+        const row = categoryRow(c, year);
+        row.style.display = "none";
+        tbody.appendChild(row);
+      });
+    });
+
+    if (currentTitle && titleIndex === 4) {
+      const finalT4 = emptyMonths();
+      addMonths(finalT4, titleSum);
+      addMonths(finalT4, totalMargin);
+      tbody.appendChild(sumRow(TOTAL_LABELS.T4, filteredTotals(finalT4)));
+    }
+    tableWrapper.appendChild(table);
+    container.appendChild(table);
+  });
+
   applyMonthVisibility();
+}
+
+// Function to handle Year tab switching
+function switchDreYear(year) {
+  activeDreYear = year;
+  
+  // Update button classes
+  document.querySelectorAll('#dreYearTabs .btn-tab-year').forEach(btn => {
+    if (btn.textContent === String(year)) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
+
+  // Toggle the wrapper divs
+  document.querySelectorAll('#yearsContainer .table-responsive').forEach(wrapper => {
+    if (wrapper.id === `dre-wrapper-${year}`) {
+      wrapper.style.display = 'block';
+    } else {
+      wrapper.style.display = 'none';
+    }
+  });
 }
         
 
@@ -1404,8 +1383,8 @@ function toggleCategories(topicRow) {
 
 
       function updateActiveButton(clickedButton) {
-        // Find all buttons within the .filters div
-        const buttons = document.querySelectorAll('.filters .btn');
+        // Find all buttons within the .filters div (Updated to look for .btn-period)
+        const buttons = document.querySelectorAll('.filters .btn-period');
         
         // Remove the 'active' class from every button
         buttons.forEach(btn => btn.classList.remove('active'));
@@ -1423,7 +1402,7 @@ function toggleCategories(topicRow) {
 
       radioButtons.forEach(radio => {
         radio.addEventListener('change', (e) => {
-          if (e.target.value === 'rateio') {
+          if (e.target.value === 'rateio' || e.target.value === 'rateio_nf') {
             file2Container.style.display = 'none';
             file2Input.value = ''; // Clear file if they selected one
           } else {
@@ -1459,14 +1438,17 @@ function toggleCategories(topicRow) {
           }
 
           // Branch logic based on the user's choice
-          if (uploadType === "rateio") {
+          if (uploadType === "rateio" || uploadType === "rateio_nf") {
             // Handle File Download
             const blob = await res.blob();
             const downloadUrl = window.URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.style.display = "none";
             a.href = downloadUrl;
-            a.download = `Rateio_Processado_${selectedMonth}.xlsx`; 
+
+            const prefix = uploadType === "rateio_nf" ? "Rateio_NF" : "Rateio_Processado";
+            a.download = `${prefix}_${selectedMonth}.xlsx`; 
+            
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(downloadUrl);
@@ -1576,6 +1558,7 @@ function toggleCategories(topicRow) {
       })();
 
     </script>
+    </main>
   </div>
 </body>
 

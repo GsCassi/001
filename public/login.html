@@ -1,51 +1,125 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <title>SIGE</title>
-    <link rel="stylesheet" href="styles.css">
-  </head>
-<body>
-<div class="login-container">
-  <div class="login-header">
-      <div class="header-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-          <polyline points="14 2 14 8 20 8"></polyline>
-          <line x1="16" y1="13" x2="8" y2="13"></line>
-          <line x1="16" y1="17" x2="8" y2="17"></line>
-          <polyline points="10 9 9 9 8 9"></polyline>
-        </svg>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SIGE - Login | Marte Engenharia</title>
+  
+  <!-- Fontes e Ícones -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="login-body">
+
+  <div class="login-wrapper">
+    <!-- COLUNA DA ESQUERDA: INSTITUCIONAL MARTE ENGENHARIA -->
+    <div class="brand-section">
+      <div class="brand-header">
+        <img src="Logo%20Marte%20-%20Horizontal_2.png" alt="Marte Engenharia" class="brand-header-logo">
+        <span class="brand-header-tagline">Construindo o futuro com energia.</span>
       </div>
-      <div class="header-text">
-        <h1 class="main-title">SIGE</h1>
-        <p class="sub-title">Painel Gerencial</p>
+
+      <div class="brand-center-content">
+        <div class="sige-brand-block">
+          <div class="sige-icon-large">
+            <i class="fa-solid fa-file-lines"></i>
+          </div>
+          <div class="sige-text-box">
+            <h1 class="sige-title">SIGE</h1>
+            <div class="sige-subtitle">Sistema Integrado de Gestão Empresarial</div>
+          </div>
+        </div>
+        <p class="brand-description">Plataforma corporativa unificada para gestão financeira, acompanhamento de contratos gerenciais e controle analítico de rateios.</p>
+      </div>
+
+      <div class="brand-footer">
+        <span>Desenvolvido por TIC</span>
+        <span>Versão 1.0.0</span>
       </div>
     </div>
 
+    <!-- COLUNA DA DIREITA: FORMULÁRIO DE ACESSO -->
+    <div class="form-section">
+      <div class="login-card">
+        
+        <div class="login-title-box">
+          <h2>Acesse sua conta</h2>
+          <p>Insira suas credenciais corporativas para continuar</p>
+        </div>
 
-  <form id="f">
-  <input id="login" placeholder="Login" required>
-  <input id="senha" type="password" placeholder="Senha" required>
-  <button class="btn">Entrar</button>
-  </form>
-</div>
-<script>
-f.onsubmit = async e => {
-  e.preventDefault();
+        <form id="f" class="login-form">
+          <div class="form-group">
+            <label for="login">Usuário</label>
+            <div class="input-icon-wrapper">
+              <i class="fa-regular fa-user input-icon"></i>
+              <input type="text" id="login" class="input-field" placeholder="Digite seu usuário" required>
+            </div>
+          </div>
 
-  const r = await fetch("/api/login", {
-    method: "POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({
-      login: login.value,
-      senha: senha.value
-    })
-  });
+          <div class="form-group">
+            <label for="senha">Senha</label>
+            <div class="input-icon-wrapper">
+              <i class="fa-solid fa-lock input-icon"></i>
+              <input type="password" id="senha" class="input-field" placeholder="••••••••••••" required>
+              <i class="fa-regular fa-eye toggle-password" onclick="togglePasswordVisibility()"></i>
+            </div>
+          </div>
 
-  if (r.ok) location.href = "/";
-  else alert("Erro no login");
-};
-</script>
+          <div class="form-options">
+            <label class="remember-me">
+              <input type="checkbox"> Lembrar-me
+            </label>
+            <a href="javascript:void(0)" class="forgot-link" onclick="handleForgotPassword()">Esqueceu a senha?</a>
+          </div>
 
+          <button type="submit" class="btn-login">
+            <span>Entrar no Sistema</span>
+            <i class="fa-solid fa-arrow-right"></i>
+          </button>
+        </form>
+
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // UI Scripts
+    function togglePasswordVisibility() {
+      const pwdInput = document.getElementById('senha');
+      const toggleIcon = document.querySelector('.toggle-password');
+      
+      if (pwdInput.type === 'password') {
+        pwdInput.type = 'text';
+        toggleIcon.classList.remove('fa-eye');
+        toggleIcon.classList.add('fa-eye-slash');
+      } else {
+        pwdInput.type = 'password';
+        toggleIcon.classList.remove('fa-eye-slash');
+        toggleIcon.classList.add('fa-eye');
+      }
+    }
+
+    function handleForgotPassword() {
+      alert('Para redefinir sua senha, entre em contato com a equipe de TIC.');
+    }
+
+    // Original Authentication Script
+    f.onsubmit = async e => {
+      e.preventDefault();
+
+      const r = await fetch("/api/login", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({
+          login: login.value,
+          senha: senha.value
+        })
+      });
+
+      if (r.ok) location.href = "/";
+      else alert("Erro no login");
+    };
+  </script>
 </body>
 </html>

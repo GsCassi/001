@@ -374,6 +374,181 @@ app.post(
       }
     } 
     
+    // ==========================================
+    // BRANCH 3: Rateio por NF / Empresa
+    // ==========================================
+    else if (uploadType === "rateio_nf") {
+      try {
+        // 1. FETCH ALL ACTIVE USERS (MySQL View)
+        const [activeUsersRes] = await mysqlPool.execute(`
+          SELECT 
+            id, 
+            centroCustoPadrao AS U_CC_Padrao, 
+            preencheAHT AS U_Folha_Ponto 
+          FROM adminis.usuarioaht 
+          WHERE ativo = 1
+        `);
+
+        const activeUsersMap = {};
+        activeUsersRes.forEach(u => {
+          activeUsersMap[u.id] = u;
+        });
+
+        // 2. FETCH TIMESHEETS WITH NUMEROPROJETO AND AREAPROJETO (MySQL View)
+        const [timesheetRes] = await mysqlPool.execute(`
+          SELECT 
+              idUsuario AS id_usuario,
+              centroCusto AS ccusto,
+              numeroProjeto,
+              areaProjeto,
+              SUM(horasReaisFracao) AS horas_trabalhadas
+          FROM adminis.lancamentosaht
+          WHERE YEAR(data) = ? AND MONTH(data) = ?
+          GROUP BY idUsuario, centroCusto, numeroProjeto, areaProjeto
+        `, [year, monthNum]);
+
+        // Organize timesheet records by user
+        const userDistribution = {};
+        timesheetRes.forEach(row => {
+          const userId = row.id_usuario;
+          const hours = Number(row.horas_trabalhadas);
+          const numProj = String(row.numeroProjeto || "").trim();
+          const areaProj = String(row.areaProjeto || "").trim().toUpperCase();
+
+          if (!userDistribution[userId]) {
+            userDistribution[userId] = [];
+          }
+
+          userDistribution[userId].push({
+            ccusto: row.ccusto,
+            numeroProjeto: numProj,
+            areaProjeto: areaProj,
+            horas: hours
+          });
+        });
+
+        // 3. READ EXCEL INPUT
+        const inputRows = parseXls(files[0].buffer);
+        const rawOutputRows = [];
+        const processDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
+        for (const row of inputRows) {
+          const userId = Number(row["ID"] || row["id"]);
+          const empresa = String(row["Empresa"] !== undefined ? row["Empresa"] : "0").trim();
+          const razaoSocial = String(row["Razão Social"] || row["Razao Social"] || "").trim();
+          const nf = String(row["NF"] || "").trim();
+          const valorTotal = parseCurrency(row["Valor"]);
+
+          if (!userId || valorTotal <= 0) {
+            console.log("⚠️ Linha ignorada no Rateio NF: ID ausente ou Valor <= 0", row);
+            continue;
+          }
+
+          const user = activeUsersMap[userId];
+          const defaultCcusto = user ? (user.U_CC_Padrao || "00011003OH") : "00011003OH";
+          const isTimesheetUser = user ? (user.U_Folha_Ponto == 1) : false;
+          const userLogs = userDistribution[userId] || [];
+
+          // Filter logged hours based on 'Empresa' column + OH/OM override rule
+          let filteredLogs = [];
+          if (isTimesheetUser && userLogs.length > 0) {
+            filteredLogs = userLogs.filter(log => {
+              const area = log.areaProjeto;
+              const isOverheadArea = (area === "OH" || area === "OM") || 
+                log.ccusto.toUpperCase().endsWith("OH") || 
+                log.ccusto.toUpperCase().endsWith("OM");
+
+              // RULE OVERRIDE: OH and OM projects are ALWAYS included regardless of Empresa
+              if (isOverheadArea) {
+                return true;
+              }
+
+              // Standard Empresa digit matching
+              if (empresa === "1") {
+                return log.numeroProjeto.startsWith("1");
+              } else if (empresa === "5") {
+                return log.numeroProjeto.startsWith("5");
+              } else {
+                // Empresa = 0 or any other value: include all
+                return true;
+              }
+            });
+          }
+
+          const totalFilteredHours = filteredLogs.reduce((sum, l) => sum + l.horas, 0);
+          const historicoText = `vl ref nf ${nf} ${razaoSocial}`.trim();
+
+          // If hours logged match filter criteria, split proportionally
+          if (totalFilteredHours > 0) {
+            for (const log of filteredLogs) {
+              const proportion = log.horas / totalFilteredHours;
+              const allocatedValue = Number((valorTotal * proportion).toFixed(2));
+
+              const isOH = log.ccusto.toUpperCase().endsWith("OH");
+              const debito = isOH ? 41 : 42;
+              const credito = 999; // Ficticious credit code placeholder
+
+              rawOutputRows.push({
+                "Data": processDate,
+                "Debito": debito,
+                "Credito": credito,
+                "C.Custo": log.ccusto,
+                "Historico": historicoText,
+                "Valor": allocatedValue
+              });
+            }
+          } else {
+            // FALLBACK: Dump 100% to default cost center
+            const isOH = defaultCcusto.toUpperCase().endsWith("OH");
+            const debito = isOH ? 41 : 42;
+            const credito = 999;
+
+            rawOutputRows.push({
+              "Data": processDate,
+              "Debito": debito,
+              "Credito": credito,
+              "C.Custo": defaultCcusto,
+              "Historico": historicoText,
+              "Valor": Number(valorTotal.toFixed(2))
+            });
+          }
+        }
+
+        // 4. DEDUPLICATION: Remove EXACT duplicate rows
+        const uniqueOutputRows = [];
+        const seenRows = new Set();
+
+        for (const outRow of rawOutputRows) {
+          const rowSignature = `${outRow.Data}|${outRow.Debito}|${outRow.Credito}|${outRow["C.Custo"]}|${outRow.Historico}|${outRow.Valor}`;
+          if (!seenRows.has(rowSignature)) {
+            seenRows.add(rowSignature);
+            uniqueOutputRows.push(outRow);
+          }
+        }
+
+        if (uniqueOutputRows.length === 0) {
+          return res.status(400).send("Nenhum rateio gerado. Verifique os dados do arquivo enviado.");
+        }
+
+        // 5. GENERATE EXCEL BUFFER
+        const newWorkbook = XLSX.utils.book_new();
+        const newWorksheet = XLSX.utils.json_to_sheet(uniqueOutputRows);
+        XLSX.utils.book_append_sheet(newWorkbook, newWorksheet, "Rateio NF");
+
+        const excelBuffer = XLSX.write(newWorkbook, { type: 'buffer', bookType: 'xlsx' });
+
+        res.setHeader('Content-Disposition', `attachment; filename="Rateio_NF_${month}.xlsx"`);
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+
+        return res.send(excelBuffer);
+
+      } catch (err) {
+        console.error("Erro no rateio por NF:", err);
+        return res.status(500).send("Erro interno ao processar o rateio por NF.");
+      }
+    }
+
+
     // Fallback if uploadType is missing or weird
     else {
       return res.status(400).send("Tipo de upload inválido.");
