@@ -1,0 +1,31 @@
+services:
+  app:
+    build: .
+    container_name: sige-app
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    depends_on:
+      - db
+    networks:
+      - rede-sige
+
+  db:
+    image: postgres:16-alpine
+    container_name: sige-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_dados:/var/lib/postgresql/data
+    networks:
+      - rede-sige
+
+volumes:
+  postgres_dados:
+
+networks:
+  rede-sige:
+    driver: bridge
