@@ -1,0 +1,36 @@
+name: Pipeline CI e Seguranca
+
+on:
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  seguranca-e-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 1. Baixar codigo do repositorio
+        uses: actions/checkout@v4
+
+      - name: 2. Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 3. Instalar dependencias e rodar SCA (npm audit)
+        run: |
+          npm ci
+          npm audit --audit-level=critical || true
+
+      - name: 4. Construir imagem Docker de teste
+        run: docker build -t sige-app:ci .
+
+      - name: 5. Scan de vulnerabilidades na imagem (Trivy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'sige-app:ci'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL'
